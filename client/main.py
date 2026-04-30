@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 W, H = 800, 800
 SERVER = ("127.0.0.1", 8480)
 
-# 硬编码 SN 码 (与服务端通信时直接用的字节)
+# SN 码 — 需先在 Web 端 (http://127.0.0.1:5000) 用测试账号绑定
+# 测试账号: user_id=1  user_name=时光
 SN_CODE = bytes([0x49, 0x43, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
 
 # 棋谱上传的 Tag 头(38字节)，用于 StepUpload 数据包前缀
@@ -48,6 +49,7 @@ class ChessClient:
         self.lock = threading.Lock()
         self.ui = ChessBoardUI(W, H)
         self._mouse_was_down = False
+        self._mode = 0x14  # 0x14=人机, 0x15=人人
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -109,7 +111,9 @@ class ChessClient:
 
         elif cmd == 0x21:  # NotifyOpenUpload
             if msg and msg[0] == 0xC0:
-                self.send(0x20, bytes([0x14]))
+                mode_name = "人机" if self._mode == 0x14 else "人人"
+                _log(f"选择对战模式: {mode_name} (0x{self._mode:02X})")
+                self.send(0x20, bytes([self._mode]))
 
         elif cmd == 0x50:  # Opening
             self.send(0x50, bytes([0xC0]))
@@ -133,8 +137,11 @@ class ChessClient:
                 self.send(0x20, bytes([0x07, 0xC0]))
                 self.playing = True
             elif msg and msg[0] == 0x0A:
-                _log("游戏结束")
+                _log("游戏结束 / 开局失败")
                 self.playing = False
+                self.my_color = None
+                self.sel = None
+                self.legal = []
                 self.board.reset()
 
         elif cmd == 0x52:  # MoveOn — 对手走棋
@@ -195,6 +202,12 @@ class ChessClient:
                 self.sel = None
                 self.legal = []
                 return
+            target = self.board.piece_at(sq)
+            if target and target.color == self.my_color:
+                self.sel = sq
+                self.legal = [m.to_square for m in self.board.legal_moves
+                              if m.from_square == sq]
+                return
             m = chess.Move(self.sel, sq)
             piece = self.board.piece_at(self.sel)
             to_rk = chess.square_rank(sq)
@@ -230,6 +243,10 @@ class ChessClient:
                         self.flip = not self.flip
                     elif ev.key == pygame.K_r and self.playing:
                         self.send(0x20, bytes([0x0A]))
+                    elif ev.key == pygame.K_m and not self.playing:
+                        self._mode = 0x15 if self._mode == 0x14 else 0x14
+                        mode_name = "人人" if self._mode == 0x15 else "人机"
+                        _log(f"切换模式 → {mode_name} (0x{self._mode:02X})")
 
             self._handle_click()
 
