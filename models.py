@@ -1,5 +1,4 @@
 from sqlalchemy import String, Integer, DateTime, LargeBinary, CheckConstraint
-from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from datetime import datetime, timezone
 

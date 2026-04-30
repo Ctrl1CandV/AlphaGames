@@ -155,7 +155,7 @@ class ChessClient:
     def _parse_move(self, raw):
         try:
             from protocol.chess_step_proto import ChessStepProto
-            from chess_core.move_handler import binary_to_uci
+            from core.move_handler import binary_to_uci
             step = ChessStepProto(raw)
             uci = binary_to_uci(step)
             _log(f"对手走棋: {uci}")
@@ -164,7 +164,7 @@ class ChessClient:
             _log(f"解析行棋失败(原始={_hex(raw)}): {e}")
 
     def send_move(self, uci):
-        from chess_core.move_handler import uci_to_binary
+        from core.move_handler import uci_to_binary
         move = chess.Move.from_uci(uci)
         if move not in self.board.legal_moves:
             return

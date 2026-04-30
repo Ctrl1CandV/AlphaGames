@@ -8,13 +8,13 @@ from protocol.constants import (
     TAG_HEADER_LENGTH,
 )
 
-from chess_core.move_handler import binary_to_uci, uci_to_binary
 from protocol.chess_opening_proto import build_opening_data
+from core.move_handler import binary_to_uci, uci_to_binary
 from protocol.chess_step_proto import ChessStepProto
 from services.lichess_service import LichessSession
-from chess_core.engine import get_stockfish_pool
-from chess_core.board import ChessBoard
+from core.engine import get_stockfish_pool
 from services.db_service import DbService
+from core.board import ChessBoard
 from config import Config
 
 from datetime import datetime, timezone
