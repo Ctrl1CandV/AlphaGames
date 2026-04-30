@@ -6,7 +6,6 @@ import berserk
 
 lichess_bp = Blueprint("lichess", __name__)
 
-
 def _verify_lichess(username: str, token: str) -> tuple[bool, str]:
     try:
         client = berserk.Client(berserk.TokenSession(token))

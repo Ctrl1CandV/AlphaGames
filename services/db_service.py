@@ -1,4 +1,4 @@
-from models import Device, ChessUploadMode, ChessRecord, ChessUser
+from models import Device, ChessUploadMode, ChessRecord, ChessUser, User
 from core.database import AsyncSessionFactory
 from sqlalchemy import select
 import logging
@@ -7,16 +7,22 @@ class DbService:
     def __init__(self, logger=None):
         self.logger = logger or logging.getLogger("AlphaGames")
 
-    async def get_user_by_sn(self, sn: str) -> str | None:
+    async def get_user_by_sn(self, sn: str) -> tuple[int | None, str | None]:
         """ 根据设备SN获取用户名称 """
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 select(Device).where(Device.sn == sn)
             )
             device = result.scalars().first()
-            if device:
-                return device.userName
-            return None
+            if not device or not device.userName:
+                return None, None
+            user_result = await session.execute(
+                select(User).where(User.userName == device.userName)
+            )
+            user = user_result.scalars().first()
+            if user:
+                return user.id, user.userName
+            return None, None
 
     async def get_upload_mode(self, username: str) -> int:
         """ 获取上传模式 """

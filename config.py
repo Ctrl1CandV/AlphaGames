@@ -14,6 +14,9 @@ class Config:
     DEFAULT_UPLOAD_MODE = 0
     DEFAULT_BATTLE_PLATFORM = "stockfish"
 
+    LICHESS_SEEK_TIME = 10
+    LICHESS_SEEK_INCREMENT = 5
+
     FLASK_HOST = "127.0.0.1"
     FLASK_PORT = 5000
     SECRET_KEY = "alpha-games-secret-key"

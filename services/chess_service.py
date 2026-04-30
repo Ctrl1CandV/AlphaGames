@@ -11,9 +11,11 @@ from protocol.constants import (
 from chess_core.move_handler import binary_to_uci, uci_to_binary
 from protocol.chess_opening_proto import build_opening_data
 from protocol.chess_step_proto import ChessStepProto
+from services.lichess_service import LichessSession
 from chess_core.engine import get_stockfish_pool
 from chess_core.board import ChessBoard
 from services.db_service import DbService
+from config import Config
 
 from datetime import datetime, timezone
 import traceback
@@ -25,10 +27,13 @@ class ChessService(BaseSession):
     def __init__(self, reader, writer, logger=None):
         super().__init__(reader, writer, logger)
         self.sn_code = None                                 # 设备序列号
+        self.user_id = None                                 # 注册用户ID
         self.chess_board_camp = None                        # 棋盘阵营
         self.board = ChessBoard(logger=self.logger)         # 棋盘逻辑
         self._pool = get_stockfish_pool(self.logger)        # AI引擎池（全局共享）
         self._db = DbService(logger=self.logger)
+        self._game_mode = None                              # "stockfish" | "lichess"
+        self._lichess = None                                # LichessSession
         self._state = "IDLE"                                # 初始状态
         self._running = True                                # 运行标志
 
@@ -122,10 +127,10 @@ class ChessService(BaseSession):
         self._log(f"收到SN码: {self.sn_code}")
 
         try:
-            self.user_name = await self._db.get_user_by_sn(self.sn_code)
+            self.user_id, self.user_name = await self._db.get_user_by_sn(self.sn_code)
         except Exception:
             self._log("查询SN绑定失败", "error")
-            self.user_name = None
+            self.user_id, self.user_name = None, None
 
         if self.user_name:
             self._log(f"关联用户: {self.user_name}")
@@ -187,8 +192,13 @@ class ChessService(BaseSession):
                 self._log(f"非预期状态收到模式选择: state={self._state}，忽略")
                 return
             self._log(f"棋盘选择对战模式: 0x{key:02X}")
-            mode = key
-            battle_bytes = bytes([mode, EnumCommandCode.OkStatusCode.value])
+
+            if key == EnumKeyInfo.ManVsRemoteMan.value:
+                await self._handle_lichess_mode(key)
+                return
+
+            self._game_mode = "stockfish"
+            battle_bytes = bytes([key, EnumCommandCode.OkStatusCode.value])
             await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
             await self._send_opening_data()
             self._state = "WAIT_OPENING"
@@ -200,18 +210,36 @@ class ChessService(BaseSession):
                 self._log("棋盘开始游戏")
 
         elif key == EnumKeyInfo.EndChess.value:
+            if self._state == "LICHESS_SEEKING":
+                self._log("棋盘取消匹配")
+                if self._lichess:
+                    self._lichess.shutdown()
+                    self._lichess = None
+                self._game_mode = None
+                await self.send_data(
+                    EnumCommandCode.EnableKey.value,
+                    bytes([EnumKeyInfo.EndChess.value, EnumCommandCode.OkStatusCode.value]),
+                )
+                self._state = "WAIT_GAME_MODE"
+                return
             if self._state != "PLAYING":
                 return
+            if self._game_mode == "lichess" and self._lichess:
+                try:
+                    await asyncio.wait_for(self._lichess.resign(), timeout=5)
+                except Exception:
+                    pass
             self._log("棋盘请求投降")
             await self._on_game_ended(is_surrender=True)
 
     async def _handle_opening(self, message):
         self._log("棋盘已按开局数据摆好棋子")
 
-        self.chess_board_camp = random.choice([True, False])
+        if self._game_mode != "lichess":
+            self.chess_board_camp = random.choice([True, False])
 
         camp_name = "白方" if self.chess_board_camp else "黑方"
-        self._log(f"随机分配阵营: {camp_name}")
+        self._log(f"分配阵营: {camp_name}")
 
         camp_byte = (
             EnumChessFlag.White.value
@@ -238,7 +266,10 @@ class ChessService(BaseSession):
             await self.send_data(EnumCommandCode.EnableKey.value, start_bytes)
 
             if not self.chess_board_camp:
-                await self._engine_move()
+                if self._game_mode == "lichess":
+                    await self._lichess_wait_and_forward_move()
+                else:
+                    await self._engine_move()
 
     async def _handle_move_on(self, message):
         if message and len(message) > 1:
@@ -246,6 +277,80 @@ class ChessService(BaseSession):
 
     async def _handle_move_verify(self, message):
         pass
+
+    async def _handle_lichess_mode(self, mode_key):
+        if not self.user_id:
+            fail = bytes([mode_key, EnumCommandCode.FailStatusCode.value])
+            await self.send_data(EnumCommandCode.EnableKey.value, fail)
+            self._log("人人对战需要绑定用户")
+            return
+
+        bind = await self._db.get_bind_info(self.user_id, "lichess")
+        if not bind.get("token"):
+            fail = bytes([mode_key, EnumCommandCode.FailStatusCode.value])
+            await self.send_data(EnumCommandCode.EnableKey.value, fail)
+            self._log("未绑定Lichess账号")
+            return
+
+        self._game_mode = "lichess"
+        battle_bytes = bytes([mode_key, EnumCommandCode.OkStatusCode.value])
+        await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
+        self._state = "LICHESS_SEEKING"
+        asyncio.create_task(self._lichess_play(bind["token"]))
+
+    async def _lichess_play(self, token):
+        try:
+            self._lichess = LichessSession(token, logger=self.logger)
+            await self._lichess.seek_until_found(
+                time=Config.LICHESS_SEEK_TIME,
+                increment=Config.LICHESS_SEEK_INCREMENT,
+            )
+            await self._lichess.start_game_stream()
+
+            my_color = self._lichess.my_color
+            self.chess_board_camp = (my_color == "white")
+            self._log(f"Lichess匹配成功 阵营={'白' if self.chess_board_camp else '黑'}")
+
+            await self._send_opening_data()
+            self._state = "WAIT_OPENING"
+        except Exception as e:
+            self._log(f"Lichess匹配失败: {e}", "error")
+            await self._on_game_ended()
+
+    async def _lichess_send_and_wait(self, uci):
+        try:
+            await self._lichess.make_move(uci)
+        except Exception as e:
+            self._log(f"Lichess走棋失败: {e}", "error")
+            await self._on_game_ended()
+            return
+
+        if self.board.is_game_over():
+            await self._on_game_ended()
+            return
+
+        await self._lichess_wait_and_forward_move()
+
+    async def _lichess_wait_and_forward_move(self):
+        try:
+            opp_uci = await self._lichess.wait_for_opponent_move()
+        except Exception as e:
+            self._log(f"等待对手走棋失败: {e}", "error")
+            await self._on_game_ended()
+            return
+
+        opp_color = self.board.board.turn
+        move_data = uci_to_binary(self.board, opp_uci, move_color=opp_color)
+        self.board.push_uci(opp_uci)
+
+        await self.send_data(EnumCommandCode.MoveOn.value, move_data)
+        await self.send_data(
+            EnumCommandCode.MoveVerify.value,
+            bytes([EnumCommandCode.MoveSucess.value]),
+        )
+
+        if self.board.is_game_over():
+            await self._on_game_ended()
 
     async def _send_opening_data(self):
         data = build_opening_data()
@@ -298,7 +403,10 @@ class ChessService(BaseSession):
             await self._on_game_ended()
             return
 
-        await self._engine_move()
+        if self._game_mode == "lichess":
+            await self._lichess_send_and_wait(uci)
+        else:
+            await self._engine_move()
 
     async def _engine_move(self):
         engine = None
@@ -359,9 +467,15 @@ class ChessService(BaseSession):
             except Exception:
                 self._log("棋谱保存失败", "error")
 
+        if self._lichess:
+            self._lichess.shutdown()
+            self._lichess = None
+        self._game_mode = None
         self._state = "WAIT_GAME_MODE"
         self.board.reset()
 
     async def _cleanup(self):
         self._running = False
+        if self._lichess:
+            self._lichess.shutdown()
         await self.close()
