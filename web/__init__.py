@@ -1,6 +1,7 @@
-from flask import Flask
 from flask_login import LoginManager, UserMixin
+from flask import Flask
 from config import Config
+import logging
 
 login_manager = LoginManager()
 
@@ -30,6 +31,12 @@ def create_app():
 
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
+
+    werkzeug_logger = logging.getLogger("werkzeug")
+    web_logger = logging.getLogger("AlphaGames.web")
+    for h in web_logger.handlers:
+        werkzeug_logger.addHandler(h)
+    werkzeug_logger.setLevel(web_logger.level)
 
     from web.auth import auth_bp
     from web.device import device_bp

@@ -5,12 +5,15 @@ import re
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 
-def setup_logger(name="AlphaGames"):
+
+def setup_logger(name, log_basename):
+    """创建独立日志实例，写入 logs/{log_basename}.log，按天切割"""
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
@@ -23,14 +26,13 @@ def setup_logger(name="AlphaGames"):
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    # 文件 — 按天切割，生成 server.log + server.log.2025-04-28
     os.makedirs(LOG_DIR, exist_ok=True)
 
     file_handler = TimedRotatingFileHandler(
-        filename=os.path.join(LOG_DIR, "server.log"),
+        filename=os.path.join(LOG_DIR, f"{log_basename}.log"),
         when="midnight",
         interval=1,
-        backupCount=30,        # 保留最近 30 天
+        backupCount=30,
         encoding="utf-8",
         utc=False,
     )
