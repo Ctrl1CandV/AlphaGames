@@ -1,6 +1,7 @@
 from core.message_proto import MessageProto
 import logging
 
+
 class BaseSession:
     """
     TCP连接会话基类，封装网络连接的读写操作和日志记录。
@@ -13,6 +14,7 @@ class BaseSession:
         self.peer = writer.get_extra_info("peername")
         self.logger = logger or logging.getLogger("AlphaGames")
         self._connected = True
+        self.user_name = None           # 关联的注册用户
 
     def _log(self, msg, level="info"):
         prefix = f"[{self.peer}]"

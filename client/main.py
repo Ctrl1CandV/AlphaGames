@@ -1,5 +1,6 @@
 from chess_ui import ChessBoardUI
 import threading
+import pygame
 import socket
 import chess
 
@@ -42,6 +43,7 @@ class ChessClient:
         self.msgs = []
         self.lock = threading.Lock()
         self.ui = ChessBoardUI(W, H)
+        self._mouse_was_down = False
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -169,9 +171,43 @@ class ChessClient:
         self.pending_move = uci
         self.send(0x25, TAG + b)
 
-    def run(self):
-        import pygame
+    def _handle_click(self):
+        mouse_down = pygame.mouse.get_pressed()[0]
+        if not self.playing or not mouse_down or self._mouse_was_down:
+            self._mouse_was_down = mouse_down
+            return
+        self._mouse_was_down = True
+        if self.board.turn != self.my_color:
+            return
+        sq = self.ui.screen_to_square(*pygame.mouse.get_pos(), self.flip)
+        if self.sel is None:
+            p = self.board.piece_at(sq)
+            if p and p.color == self.my_color:
+                self.sel = sq
+                self.legal = [m.to_square for m in self.board.legal_moves
+                              if m.from_square == sq]
+        else:
+            if sq == self.sel:
+                self.sel = None
+                self.legal = []
+                return
+            m = chess.Move(self.sel, sq)
+            piece = self.board.piece_at(self.sel)
+            to_rk = chess.square_rank(sq)
+            promo = None
+            if piece and piece.piece_type == chess.PAWN and to_rk in (0, 7):
+                promo = self.ui.promotion_choice(lambda: self.running)
+                if promo is None:
+                    self.sel = None
+                    self.legal = []
+                    return
+                m = chess.Move(self.sel, sq, promotion=promo)
+            if m in self.board.legal_moves:
+                self.send_move(m.uci())
+            self.sel = None
+            self.legal = []
 
+    def run(self):
         _log("启动...")
         self.connect()
 
@@ -190,36 +226,8 @@ class ChessClient:
                         self.flip = not self.flip
                     elif ev.key == pygame.K_r and self.playing:
                         self.send(0x20, bytes([0x0A]))
-                elif ev.type == pygame.MOUSEBUTTONDOWN and self.playing:
-                    if self.board.turn != self.my_color:
-                        continue
-                    sq = self.ui.screen_to_square(*ev.pos, self.flip)
-                    if self.sel is None:
-                        p = self.board.piece_at(sq)
-                        if p and p.color == self.my_color:
-                            self.sel = sq
-                            self.legal = [m.to_square for m in self.board.legal_moves
-                                          if m.from_square == sq]
-                    else:
-                        if sq == self.sel:
-                            self.sel = None
-                            self.legal = []
-                            continue
-                        m = chess.Move(self.sel, sq)
-                        piece = self.board.piece_at(self.sel)
-                        to_rk = chess.square_rank(sq)
-                        promo = None
-                        if piece and piece.piece_type == chess.PAWN and to_rk in (0, 7):
-                            promo = self.ui.promotion_choice(lambda: self.running)
-                            if promo is None:
-                                self.sel = None
-                                self.legal = []
-                                continue
-                            m = chess.Move(self.sel, sq, promotion=promo)
-                        if m in self.board.legal_moves:
-                            self.send_move(m.uci())
-                        self.sel = None
-                        self.legal = []
+
+            self._handle_click()
 
             self.ui.draw(self.board, self.flip, self.sel, self.legal)
             self.ui.flip_display()

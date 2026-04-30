@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}绑定 Lichess - AlphaGames{% endblock %}
+{% block content %}
+<h1>绑定 Lichess 账号</h1>
+{% if lichess_info %}
+    <p>当前绑定: <code>{{ lichess_info.lichess_username }}</code></p>
+{% endif %}
+<form method="post">
+    <label>Lichess 用户名
+        <input name="lichess_username" required
+               value="{{ lichess_info.lichess_username if lichess_info else '' }}">
+    </label>
+    <label>API Token
+        <input name="lichess_token" required placeholder="lip_xxxxxxxx">
+    </label>
+    <button type="submit">{{ '更新' if lichess_info else '绑定' }}</button>
+</form>
+<p class="hint"><a href="/dashboard">返回面板</a></p>
+{% endblock %}

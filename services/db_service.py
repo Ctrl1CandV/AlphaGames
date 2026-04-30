@@ -39,17 +39,18 @@ class DbService:
             await session.commit()
             self.logger.info(f"棋谱已保存: user={username} size={len(data)}")
 
-    async def get_bind_info(self, username: str, platform: str) -> dict:
-        """ 获取绑定信息 """
+    async def get_bind_info(self, user_id: int, platform: str) -> dict:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 select(ChessUser).where(
-                    ChessUser.userName == username,
+                    ChessUser.userId == user_id,
                     ChessUser.battlePlatform == platform,
                 )
             )
             user = result.scalars().first()
-            if user and user.info:
-                import json
-                return json.loads(user.info)
+            if user:
+                return {
+                    "lichess_username": user.userName,
+                    "token": user.token,
+                }
             return {}

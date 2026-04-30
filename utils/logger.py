@@ -1,6 +1,7 @@
 from logging.handlers import TimedRotatingFileHandler
 import logging
 import os
+import re
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 
@@ -34,7 +35,7 @@ def setup_logger(name="AlphaGames"):
         utc=False,
     )
     file_handler.suffix = "%Y-%m-%d"
-    file_handler.extMatch = r"^\d{4}-\d{2}-\d{2}$"
+    file_handler.extMatch = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

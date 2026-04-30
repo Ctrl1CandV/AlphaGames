@@ -63,6 +63,8 @@ class MessageProto:
         if buffer and len(buffer) >= MessageProto.HEAD_LENGTH:
             head, command = buffer[0], buffer[1]
             data_length = int.from_bytes(buffer[2:4], byteorder="little")
+            if data_length < MessageProto.HEAD_LENGTH:
+                return 0, 0, 0
             return head, command, data_length
         return 0, 0, 0
 

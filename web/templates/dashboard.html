@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}面板 - AlphaGames{% endblock %}
+{% block content %}
+<h1>欢迎，{{ current_user.username }}</h1>
+
+<div class="card">
+    <h2>物理棋盘</h2>
+    {% if device %}
+        <p>已绑定 SN: <code>{{ device.sn }}</code></p>
+        <a href="/device/bind" class="btn-link">更换</a>
+    {% else %}
+        <p class="muted">未绑定</p>
+        <a href="/device/bind" class="btn-link">立即绑定</a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Lichess 账号</h2>
+    {% if lichess_info %}
+        <p>已绑定: <code>{{ lichess_info.lichess_username }}</code></p>
+        <a href="/lichess/bind" class="btn-link">更换</a>
+    {% else %}
+        <p class="muted">未绑定</p>
+        <a href="/lichess/bind" class="btn-link">立即绑定</a>
+    {% endif %}
+</div>
+{% endblock %}

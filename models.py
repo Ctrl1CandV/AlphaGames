@@ -1,4 +1,5 @@
-from sqlalchemy import String, Integer, Text, DateTime, LargeBinary, CheckConstraint
+from sqlalchemy import String, Integer, DateTime, LargeBinary, CheckConstraint
+from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from datetime import datetime, timezone
 
@@ -6,6 +7,7 @@ class Base(DeclarativeBase):
     pass
 
 class ChessRecord(Base):
+    """ UserName: 中台用户名 CreateTime: 创建时间 Data: 棋谱数据 """
     __tablename__ = "chessrecord"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -17,12 +19,19 @@ class ChessRecord(Base):
         return f"<ChessRecord {self.id}: {self.userName}>"
 
 class ChessUser(Base):
+    """
+    userId: Python中台用户ID
+    userName: Lichess 用户名
+    token: Lichess API Token
+    battlePlatform: 对战平台名称，如lichess
+    """
     __tablename__ = "chessuser"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    userId: Mapped[int] = mapped_column(Integer, index=True)
     userName: Mapped[str | None] = mapped_column(String(255), index=True)
+    token: Mapped[str | None] = mapped_column(String(255))
     battlePlatform: Mapped[str | None] = mapped_column(String(255), index=True)
-    info: Mapped[str | None] = mapped_column(Text)
     createTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc))
     updateTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
@@ -30,6 +39,7 @@ class ChessUser(Base):
         return f"<ChessUser {self.id}: {self.userName}>"
 
 class Device(Base):
+    """ SN: 棋谱SN码 """
     __tablename__ = "device"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -53,6 +63,7 @@ class User(Base):
         return f"<User {self.id}: {self.userName}>"
 
 class ChessUploadMode(Base):
+    """ Type: 棋谱类型 UploadMode: 上传模式，代表步步上传，代表整局上传 """
     __tablename__ = "chessuploadmode"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -11,12 +11,15 @@ from protocol.constants import (
 from chess_core.move_handler import binary_to_uci, uci_to_binary
 from protocol.chess_opening_proto import build_opening_data
 from protocol.chess_step_proto import ChessStepProto
-from chess_core.engine import StockfishEngine
+from chess_core.engine import get_stockfish_pool
 from chess_core.board import ChessBoard
+from services.db_service import DbService
 
+from datetime import datetime, timezone
 import traceback
 import asyncio
 import random
+import json
 
 class ChessService(BaseSession):
     def __init__(self, reader, writer, logger=None):
@@ -24,7 +27,8 @@ class ChessService(BaseSession):
         self.sn_code = None                                 # 设备序列号
         self.chess_board_camp = None                        # 棋盘阵营
         self.board = ChessBoard(logger=self.logger)         # 棋盘逻辑
-        self.engine = StockfishEngine(logger=self.logger)   # AI引擎
+        self._pool = get_stockfish_pool(self.logger)        # AI引擎池（全局共享）
+        self._db = DbService(logger=self.logger)
         self._state = "IDLE"                                # 初始状态
         self._running = True                                # 运行标志
 
@@ -92,34 +96,24 @@ class ChessService(BaseSession):
 
         if cmd == EnumCommonCommandCode.SnCode.value:
             await self._handle_sn_code(message)
-
         elif cmd == EnumCommandCode.StepUpload.value:
             await self._handle_step_upload(message)
-
         elif cmd == EnumCommandCode.AllUpload.value:
             await self._handle_all_upload(message)
-
         elif cmd == EnumCommandCode.NotifyOpenUpload.value:
             await self._handle_notify_open_upload(message)
-
         elif cmd == EnumCommandCode.EnableKey.value:
             await self._handle_enable_key(message)
-
         elif cmd == EnumCommandCode.Opening.value:
             await self._handle_opening(message)
-
         elif cmd == EnumCommandCode.BoardCamp.value:
             await self._handle_board_camp(message)
-
         elif cmd == EnumCommandCode.BoardLayout.value:
             await self._handle_board_layout(message)
-
         elif cmd == EnumCommandCode.MoveOn.value:
             await self._handle_move_on(message)
-
         elif cmd == EnumCommandCode.MoveVerify.value:
             await self._handle_move_verify(message)
-
         else:
             self._log(f"未处理的命令: 0x{command:02X}")
 
@@ -127,9 +121,19 @@ class ChessService(BaseSession):
         self.sn_code = message.decode("utf-8").replace("\x00", "").strip()
         self._log(f"收到SN码: {self.sn_code}")
 
+        try:
+            self.user_name = await self._db.get_user_by_sn(self.sn_code)
+        except Exception:
+            self._log("查询SN绑定失败", "error")
+            self.user_name = None
+
+        if self.user_name:
+            self._log(f"关联用户: {self.user_name}")
+        else:
+            self._log("SN未绑定用户")
+
         self._log("下发步步上传模式")
         await self.send_data(EnumCommandCode.StepUpload.value, None)
-
         self._state = "WAIT_UPLOAD_MODE"
 
     async def _handle_step_upload(self, message):
@@ -151,6 +155,7 @@ class ChessService(BaseSession):
             return
 
         await self._process_player_move(step_data)
+
 
     async def _handle_all_upload(self, message):
         if message is None or len(message) <= 1:
@@ -197,10 +202,8 @@ class ChessService(BaseSession):
         elif key == EnumKeyInfo.EndChess.value:
             if self._state != "PLAYING":
                 return
-            self._log("棋盘请求结束游戏")
+            self._log("棋盘请求投降")
             await self._on_game_ended(is_surrender=True)
-            end_bytes = bytes([EnumKeyInfo.EndChess.value, EnumCommandCode.OkStatusCode.value])
-            await self.send_data(EnumCommandCode.EnableKey.value, end_bytes)
 
     async def _handle_opening(self, message):
         self._log("棋盘已按开局数据摆好棋子")
@@ -221,8 +224,11 @@ class ChessService(BaseSession):
     async def _handle_board_camp(self, message):
         if len(message) >= 2 and message[1] == EnumCommandCode.OkStatusCode.value:
             self._log("棋盘已按阵营信息设置完成")
+            self._state = "WAIT_LAYOUT"
 
     async def _handle_board_layout(self, message):
+        if self._state not in ("WAIT_CAMP", "WAIT_LAYOUT"):
+            return
         if message and len(message) == 1 and message[0] == EnumCommandCode.BoardLayoutComplete.value:
             self._log("棋盘布局完成，开始对弈")
 
@@ -230,11 +236,6 @@ class ChessService(BaseSession):
 
             start_bytes = bytes([EnumKeyInfo.StartChess.value, EnumCommandCode.OkStatusCode.value])
             await self.send_data(EnumCommandCode.EnableKey.value, start_bytes)
-
-            try:
-                await asyncio.wait_for(self.engine.start(), timeout=8.0)
-            except (Exception, asyncio.TimeoutError) as e:
-                self._log(f"Stockfish 启动失败: {e}", "error")
 
             if not self.chess_board_camp:
                 await self._engine_move()
@@ -251,7 +252,6 @@ class ChessService(BaseSession):
         await self.send_data(EnumCommandCode.Opening.value, data)
 
     def _extract_step_data(self, message):
-        """ 从接收到的消息中提取行棋数据，并解析为ChessStepProto对象 """
         if len(message) >= TAG_HEADER_LENGTH + 6:
             move_bytes = message[TAG_HEADER_LENGTH : TAG_HEADER_LENGTH + 6]
         elif len(message) == 6:
@@ -267,10 +267,6 @@ class ChessService(BaseSession):
             return None
 
     async def _process_player_move(self, step_data):
-        """
-        处理玩家走棋的完整流程：
-        1. 转换UCI格式 → 2. 验证合法性 → 3. 更新棋盘 → 4. 发送确认 → 5. 检查游戏结束 → 6. AI走棋
-        """
         try:
             uci = binary_to_uci(step_data)
         except Exception as e:
@@ -305,14 +301,19 @@ class ChessService(BaseSession):
         await self._engine_move()
 
     async def _engine_move(self):
-        """
-        AI引擎走棋完整流程：
-        1. 调用Stockfish计算最佳走棋 → 2. 转换为二进制格式 → 3. 更新棋盘 → 4. 发送走棋数据 → 5. 检查游戏结束
-        """
-        try:
-            ai_uci = await self.engine.get_best_move(self.board)
-        except Exception as e:
-            self._log(f"Stockfish 走棋失败: {e}", "error")
+        engine = None
+        for attempt in (1, 2):
+            engine = await self._pool.acquire()
+            try:
+                ai_uci = await engine.get_best_move(self.board)
+                break
+            except Exception as e:
+                self._log(f"Stockfish 走棋失败(第{attempt}次): {e}", "error")
+                await engine.quit()
+                engine = None
+        else:
+            self._log("Stockfish 连续走棋失败，结束对局", "error")
+            await self._on_game_ended()
             return
 
         ai_color = self.board.board.turn
@@ -320,9 +321,12 @@ class ChessService(BaseSession):
             move_data = uci_to_binary(self.board, ai_uci, move_color=ai_color)
         except Exception as e:
             self._log(f"UCI转二进制失败: {e}", "error")
+            await self._pool.release(engine)
+            await self._on_game_ended()
             return
 
         self.board.push_uci(ai_uci)
+        await self._pool.release(engine)
 
         await self.send_data(EnumCommandCode.MoveOn.value, move_data)
         await self.send_data(
@@ -334,34 +338,30 @@ class ChessService(BaseSession):
             await self._on_game_ended()
 
     async def _on_game_ended(self, is_surrender=False):
-        """
-        游戏结束处理流程：
-        1. 记录游戏结果 → 2. 清理AI引擎 → 3. 通知设备 → 4. 重置游戏状态
-        """
-        self._log(f"游戏结束, 结果={self.board.result()}")
-
-        if self.engine:
-            try:
-                await self.engine.quit()
-            except Exception:
-                pass
-            self.engine = None
+        result = self.board.result()
+        reason = "投降" if is_surrender else f"终局({result})"
+        self._log(f"游戏结束: {reason}")
 
         await self.send_data(
             EnumCommandCode.EnableKey.value,
             bytes([EnumKeyInfo.EndChess.value, EnumCommandCode.OkStatusCode.value]),
         )
 
+        if self.user_name:
+            try:
+                record_data = json.dumps({
+                    "moves": self.board.move_stack(),
+                    "result": result,
+                    "final_fen": self.board.fen(),
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                }, ensure_ascii=False).encode("utf-8")
+                await self._db.save_chess_record(self.user_name, record_data)
+            except Exception:
+                self._log("棋谱保存失败", "error")
+
         self._state = "WAIT_GAME_MODE"
         self.board.reset()
-        self.engine = StockfishEngine(logger=self.logger)
 
     async def _cleanup(self):
-        """ 异常结束国际象棋服务 """
         self._running = False
-        if self.engine:
-            try:
-                await self.engine.quit()
-            except Exception:
-                pass
         await self.close()
