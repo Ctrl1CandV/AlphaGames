@@ -218,7 +218,7 @@ class ChessService(BaseSession):
                 self._game_mode = None
                 await self.send_data(
                     EnumCommandCode.EnableKey.value,
-                    bytes([EnumKeyInfo.EndChess.value, EnumCommandCode.OkStatusCode.value]),
+                    bytes([EnumKeyInfo.EndChess.value]),
                 )
                 self._state = "WAIT_GAME_MODE"
                 return
@@ -280,16 +280,14 @@ class ChessService(BaseSession):
 
     async def _handle_lichess_mode(self, mode_key):
         if not self.user_id:
-            fail = bytes([mode_key, EnumCommandCode.FailStatusCode.value])
-            await self.send_data(EnumCommandCode.EnableKey.value, fail)
             self._log("人人对战需要绑定用户")
+            await self._send_open_fail()
             return
 
         bind = await self._db.get_bind_info(self.user_id, "lichess")
         if not bind.get("token"):
-            fail = bytes([mode_key, EnumCommandCode.FailStatusCode.value])
-            await self.send_data(EnumCommandCode.EnableKey.value, fail)
             self._log("未绑定Lichess账号")
+            await self._send_open_fail()
             return
 
         self._game_mode = "lichess"
@@ -297,6 +295,13 @@ class ChessService(BaseSession):
         await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
         self._state = "LICHESS_SEEKING"
         asyncio.create_task(self._lichess_play(bind["token"]))
+
+    async def _send_open_fail(self):
+        await self.send_data(
+            EnumCommandCode.EnableKey.value,
+            bytes([EnumKeyInfo.EndChess.value]),
+        )
+        self._state = "WAIT_GAME_MODE"
 
     async def _lichess_play(self, token):
         try:
@@ -452,7 +457,7 @@ class ChessService(BaseSession):
 
         await self.send_data(
             EnumCommandCode.EnableKey.value,
-            bytes([EnumKeyInfo.EndChess.value, EnumCommandCode.OkStatusCode.value]),
+            bytes([EnumKeyInfo.EndChess.value]),
         )
 
         if self.user_name:
