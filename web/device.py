@@ -19,26 +19,26 @@ def bind_device():
             if request.method == "POST":
                 sn = request.form.get("sn", "").strip()
                 if not sn:
-                    flash("SN码不能为空")
+                    flash("SN码不能为空", "error")
                 else:
                     conflict = session.query(Device).filter(
                         Device.sn == sn, Device.userName != current_user.username
                     ).first()
                     if conflict:
-                        flash("该棋盘已被其他用户绑定")
+                        flash("该棋盘已被其他用户绑定", "error")
                     elif mine:
                         mine.sn = sn
                         session.commit()
-                        flash("棋盘已更新")
+                        flash("棋盘已更新", "success")
                         return redirect(url_for("auth.dashboard"))
                     else:
                         session.add(Device(
                             userName=current_user.username, sn=sn
                         ))
                         session.commit()
-                        flash("棋盘绑定成功")
+                        flash("棋盘绑定成功", "success")
                         return redirect(url_for("auth.dashboard"))
     except Exception:
-        flash("服务器内部错误，请稍后重试")
+        flash("服务器内部错误，请稍后重试", "error")
 
     return render_template("bind_device.html", device=mine)

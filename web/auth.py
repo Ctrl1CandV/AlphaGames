@@ -26,9 +26,9 @@ def login():
                 if user and check_password_hash(user.password, password):
                     login_user(LoginUser(user))
                     return redirect(url_for("auth.dashboard"))
-                flash("用户名或密码错误")
+                flash("用户名或密码错误", "error")
         except Exception:
-            flash("服务器内部错误，请稍后重试")
+            flash("服务器内部错误，请稍后重试", "error")
     return render_template("login.html")
 
 
@@ -39,24 +39,24 @@ def register():
         password = request.form.get("password", "")
         confirm = request.form.get("confirm_password", "")
         if not username or not password:
-            flash("用户名和密码不能为空")
+            flash("用户名和密码不能为空", "error")
         elif password != confirm:
-            flash("两次输入的密码不一致")
+            flash("两次输入的密码不一致", "error")
         else:
             try:
                 with SyncSessionFactory() as session:
                     if session.query(User).filter_by(userName=username).first():
-                        flash("用户名已存在")
+                        flash("用户名已存在", "error")
                     else:
                         session.add(User(
                             userName=username,
                             password=generate_password_hash(password),
                         ))
                         session.commit()
-                        flash("注册成功，请登录")
+                        flash("注册成功，请登录", "success")
                         return redirect(url_for("auth.login"))
             except Exception:
-                flash("服务器内部错误，请稍后重试")
+                flash("服务器内部错误，请稍后重试", "error")
     return render_template("register.html")
 
 
@@ -85,6 +85,6 @@ def dashboard():
                     "lichess_username": lichess_record.userName,
                 }
     except Exception:
-        flash("无法加载面板数据，请稍后重试")
+        flash("无法加载面板数据，请稍后重试", "error")
     return render_template("dashboard.html",
                            device=device, lichess_info=lichess_info)

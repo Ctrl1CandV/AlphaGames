@@ -45,17 +45,17 @@ def binary_to_uci(step):
 def uci_to_binary(board, uci_str, move_color=None):
     """ 将UCI格式字符串转换为二进制字节序列 """
     move = chess.Move.from_uci(uci_str)
-    piece = board.board.piece_at(move.from_square)
-    target = board.board.piece_at(move.to_square)
+    b = board.board if hasattr(board, 'board') else board
+    piece = b.piece_at(move.from_square)
+    target = b.piece_at(move.to_square)
     from_file = chess.square_file(move.from_square)
     to_rank = chess.square_rank(move.to_square)
     to_file = chess.square_file(move.to_square)
 
-    # 确定当前的颜色
     if move_color is not None:
         player_is_white = move_color == chess.WHITE
     else:
-        player_is_white = board.board.turn == chess.WHITE
+        player_is_white = b.turn == chess.WHITE
     color_byte = EnumChessFlag.White.value if player_is_white else EnumChessFlag.Black.value
 
     # 处理王车易位

@@ -6,6 +6,7 @@ import berserk
 
 lichess_bp = Blueprint("lichess", __name__)
 
+
 def _verify_lichess(username: str, token: str) -> tuple[bool, str]:
     try:
         client = berserk.Client(berserk.TokenSession(token))
@@ -44,16 +45,16 @@ def bind_lichess():
                 lichess_name = request.form.get("lichess_username", "").strip()
                 lichess_token = request.form.get("lichess_token", "").strip()
                 if not lichess_name or not lichess_token:
-                    flash("Lichess 用户名和 Token 不能为空")
+                    flash("Lichess 用户名和 Token 不能为空", "error")
                 else:
                     ok, err = _verify_lichess(lichess_name, lichess_token)
                     if not ok:
-                        flash(err)
+                        flash(err, "error")
                     elif existing:
                         existing.userName = lichess_name
                         existing.token = lichess_token
                         session.commit()
-                        flash("Lichess 账号已更新")
+                        flash("Lichess 账号已更新", "success")
                         return redirect(url_for("auth.dashboard"))
                     else:
                         session.add(ChessUser(
@@ -63,9 +64,9 @@ def bind_lichess():
                             battlePlatform="lichess",
                         ))
                         session.commit()
-                        flash("Lichess 账号绑定成功")
+                        flash("Lichess 账号绑定成功", "success")
                         return redirect(url_for("auth.dashboard"))
     except Exception:
-        flash("服务器内部错误，请稍后重试")
+        flash("服务器内部错误，请稍后重试", "error")
 
     return render_template("bind_lichess.html", lichess_info=lichess_info)

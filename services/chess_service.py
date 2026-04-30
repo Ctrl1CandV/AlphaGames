@@ -344,7 +344,7 @@ class ChessService(BaseSession):
             await self._on_game_ended()
             return
 
-        opp_color = self.board.board.turn
+        opp_color = self.board.turn()
         move_data = uci_to_binary(self.board, opp_uci, move_color=opp_color)
         self.board.push_uci(opp_uci)
 
@@ -429,7 +429,7 @@ class ChessService(BaseSession):
             await self._on_game_ended()
             return
 
-        ai_color = self.board.board.turn
+        ai_color = self.board.turn()
         try:
             move_data = uci_to_binary(self.board, ai_uci, move_color=ai_color)
         except Exception as e:
