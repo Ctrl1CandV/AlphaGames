@@ -6,22 +6,42 @@
 <div class="card">
     <h2>物理棋盘</h2>
     {% if device %}
-        <p>已绑定 SN: <code>{{ device.sn }}</code></p>
-        <a href="/device/bind" class="btn-link">更换</a>
+        <div class="status-row">
+            <span class="dot on"></span>
+            <span class="status-text">已绑定 <code>{{ device.sn }}</code></span>
+        </div>
+        <div class="card-action">
+            <a href="/device/bind" class="btn-link">更换</a>
+        </div>
     {% else %}
-        <p class="muted">未绑定</p>
-        <a href="/device/bind" class="btn-link">立即绑定</a>
+        <div class="status-row">
+            <span class="dot off"></span>
+            <span class="status-muted">未绑定</span>
+        </div>
+        <div class="card-action">
+            <a href="/device/bind" class="btn-link">立即绑定</a>
+        </div>
     {% endif %}
 </div>
 
 <div class="card">
     <h2>Lichess 账号</h2>
     {% if lichess_info %}
-        <p>已绑定: <code>{{ lichess_info.lichess_username }}</code></p>
-        <a href="/lichess/bind" class="btn-link">更换</a>
+        <div class="status-row">
+            <span class="dot on"></span>
+            <span class="status-text">已绑定 <code>{{ lichess_info.lichess_username }}</code></span>
+        </div>
+        <div class="card-action">
+            <a href="/lichess/bind" class="btn-link">更换</a>
+        </div>
     {% else %}
-        <p class="muted">未绑定</p>
-        <a href="/lichess/bind" class="btn-link">立即绑定</a>
+        <div class="status-row">
+            <span class="dot off"></span>
+            <span class="status-muted">未绑定</span>
+        </div>
+        <div class="card-action">
+            <a href="/lichess/bind" class="btn-link">立即绑定</a>
+        </div>
     {% endif %}
 </div>
 {% endblock %}
