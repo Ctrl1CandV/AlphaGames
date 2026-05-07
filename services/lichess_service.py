@@ -72,6 +72,25 @@ class LichessSession:
                 self._log(f"匹配成功 game_id={self._game_id} color={self._my_color}")
                 return
 
+    async def challenge_ai(self, level=3, time_min=10, increment_sec=5):
+        self._running = True
+        loop = asyncio.get_running_loop()
+
+        def _challenge():
+            return self._client.challenges.create_ai(
+                level=level,
+                clock_limit=time_min * 60,
+                clock_increment=increment_sec,
+                color="random",
+                variant="standard",
+            )
+
+        game = await loop.run_in_executor(None, _challenge)
+        game_data = game if isinstance(game, dict) else game.__dict__ if hasattr(game, '__dict__') else {}
+        self._game_id = game_data.get("id") or getattr(game, "id", None)
+        self._my_color = game_data.get("color") or getattr(game, "color", None)
+        self._log(f"AI挑战成功 game_id={self._game_id} color={self._my_color}")
+
     async def start_game_stream(self):
         loop = asyncio.get_running_loop()
 
@@ -89,19 +108,59 @@ class LichessSession:
 
         state = await asyncio.wait_for(self._states.get(), timeout=15)
         stype = state.get("type") if isinstance(state, dict) else getattr(state, "type", None)
-        if stype == "gameFull":
-            if not self._my_color:
-                self._my_color = state.get("color") if isinstance(state, dict) else getattr(state, "color", None)
-            inner = state.get("state") if isinstance(state, dict) else getattr(state, "state", None)
-            moves_str = inner.get("moves", "") if isinstance(inner, dict) else getattr(inner, "moves", "")
-            self._move_count = len(moves_str.split()) if moves_str else 0
-            self._log(f"对局开始 color={self._my_color} initial_moves={self._move_count}")
-        else:
+        if stype != "gameFull":
             self._log(f"未预期的初始状态: {stype}", "error")
+            return
+
+        if not self._my_color:
+            self._resolve_color_from_players(state)
+        inner = state.get("state") if isinstance(state, dict) else getattr(state, "state", None)
+        moves_str = inner.get("moves", "") if isinstance(inner, dict) else getattr(inner, "moves", "")
+        status = inner.get("status", "") if isinstance(inner, dict) else getattr(inner, "status", "")
+        self._move_count = len(moves_str.split()) if moves_str else 0
+        self._log(f"gameFull color={self._my_color} status={status} moves={self._move_count}")
+
+        if status != "started":
+            state2 = await asyncio.wait_for(self._states.get(), timeout=15)
+            stype2 = state2.get("type") if isinstance(state2, dict) else getattr(state2, "type", None)
+            if stype2 == "gameState":
+                inner2 = state2.get("status") if isinstance(state2, dict) else getattr(state2, "status", None)
+                moves_str2 = state2.get("moves", "") if isinstance(state2, dict) else getattr(state2, "moves", "")
+                moves = moves_str2.split()
+                if len(moves) > self._move_count:
+                    self._move_count = len(moves)
+                self._log(f"gameState status={inner2} moves={self._move_count}")
+            else:
+                self._log(f"等待gameState但收到: {stype2}", "error")
+
+    def _resolve_color_from_players(self, state):
+        white = state.get("white") if isinstance(state, dict) else getattr(state, "white", None)
+        black = state.get("black") if isinstance(state, dict) else getattr(state, "black", None)
+        if not white or not black:
+            return
+        white_is_bot = self._is_bot(white)
+        black_is_bot = self._is_bot(black)
+        if white_is_bot and not black_is_bot:
+            self._my_color = "black"
+        elif black_is_bot and not white_is_bot:
+            self._my_color = "white"
+
+    @staticmethod
+    def _is_bot(player):
+        if isinstance(player, dict):
+            return player.get("user", {}).get("title") == "BOT" or \
+                   player.get("aiLevel") is not None or \
+                   player.get("ai", False) is not False
+        if hasattr(player, "title"):
+            return player.title == "BOT"
+        if hasattr(player, "aiLevel"):
+            return player.aiLevel is not None
+        return False
 
     async def make_move(self, uci):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: self._client.board.make_move(self._game_id, uci))
+        self._move_count += 1
         self._log(f"走棋: {uci}")
 
     async def resign(self):
