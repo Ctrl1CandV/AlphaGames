@@ -1,0 +1,56 @@
+{% extends "admin_base.html" %}
+{% block title %}统计概览 - AlphaGames{% endblock %}
+{% block page_title %}统计概览{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon users"><svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+        <div class="stat-info">
+            <div class="stat-value">{{ user_count }}</div>
+            <div class="stat-label">注册用户</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon devices"><svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg></div>
+        <div class="stat-info">
+            <div class="stat-value">{{ device_count }}</div>
+            <div class="stat-label">绑定棋盘</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon lichess"><svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></div>
+        <div class="stat-info">
+            <div class="stat-value">{{ lichess_count }}</div>
+            <div class="stat-label">Lichess账号</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon records"><svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+        <div class="stat-info">
+            <div class="stat-value">{{ record_count }}</div>
+            <div class="stat-label">对局记录</div>
+        </div>
+    </div>
+</div>
+
+{% if current_user.username == 'admin' %}
+<div class="section-card mt-6">
+    <div class="card-header">
+        <h3>创建管理员</h3>
+        <p class="subtitle">仅系统管理员可创建新的管理员账号</p>
+    </div>
+    <div class="card-body">
+        <form method="post" action="/admin/create-admin" class="inline-form">
+            <div class="form-group mb-0">
+                <input type="text" name="username" placeholder="输入管理员用户名" required>
+            </div>
+            <div class="form-group mb-0">
+                <input type="password" name="password" placeholder="输入初始密码" required>
+            </div>
+            <button type="submit" class="btn-primary">立即创建</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

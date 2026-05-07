@@ -61,6 +61,17 @@ class User(Base):
     def __repr__(self):
         return f"<User {self.id}: {self.userName}>"
 
+class Admin(Base):
+    __tablename__ = "admin"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    userName: Mapped[str | None] = mapped_column(String(255), index=True, unique=True)
+    password: Mapped[str] = mapped_column(String(255))
+    createTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<Admin {self.id}: {self.userName}>"
+
 class ChessUploadMode(Base):
     """ Type: 棋谱类型 UploadMode: 上传模式，代表步步上传，代表整局上传 """
     __tablename__ = "chessuploadmode"

@@ -1,47 +1,104 @@
 {% extends "base.html" %}
-{% block title %}面板 - AlphaGames{% endblock %}
-{% block content %}
-<h1>欢迎，{{ current_user.username }}</h1>
+{% block title %}控制面板 - AlphaGames{% endblock %}
 
-<div class="card">
-    <h2>物理棋盘</h2>
-    {% if device %}
-        <div class="status-row">
-            <span class="dot on"></span>
-            <span class="status-text">已绑定 <code>{{ device.sn }}</code></span>
+{% block content %}
+<div class="dashboard-header">
+    <div class="user-greeting">
+        <div class="avatar-large">{{ current_user.username[0]|upper }}</div>
+        <div>
+            <h2>欢迎回来，{{ current_user.username }}</h2>
+            <p class="text-muted">管理您的棋盘设备与游戏平台绑定</p>
         </div>
-        <div class="card-action">
-            <a href="/device/bind" class="btn-link">更换</a>
-        </div>
-    {% else %}
-        <div class="status-row">
-            <span class="dot off"></span>
-            <span class="status-muted">未绑定</span>
-        </div>
-        <div class="card-action">
-            <a href="/device/bind" class="btn-link">立即绑定</a>
-        </div>
-    {% endif %}
+    </div>
 </div>
 
-<div class="card">
-    <h2>Lichess 账号</h2>
-    {% if lichess_info %}
-        <div class="status-row">
-            <span class="dot on"></span>
-            <span class="status-text">已绑定 <code>{{ lichess_info.lichess_username }}</code></span>
+<div class="stats-grid">
+    <!-- 物理棋盘卡片 -->
+    <div class="section-card flex-col">
+        <div class="card-header">
+            <h3>物理棋盘</h3>
         </div>
-        <div class="card-action">
-            <a href="/lichess/bind" class="btn-link">更换</a>
+        <div class="card-body flex-1 flex-col justify-center">
+            {% if device %}
+                <div class="status-indicator success mb-4">
+                    <span class="dot pulse"></span>
+                    <span class="font-medium">设备已在线</span>
+                </div>
+                <div class="info-box mb-4">
+                    <span class="info-label">SN 序列号</span>
+                    <code class="text-primary text-lg">{{ device.sn }}</code>
+                </div>
+                <div class="mt-auto">
+                    <a href="/device/bind" class="btn-outline btn-block">更换设备</a>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <div class="icon-placeholder mb-2">
+                        <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect></svg>
+                    </div>
+                    <p class="text-muted mb-4">尚未绑定物理棋盘设备</p>
+                    <a href="/device/bind" class="btn-primary btn-block">立即绑定</a>
+                </div>
+            {% endif %}
         </div>
-    {% else %}
-        <div class="status-row">
-            <span class="dot off"></span>
-            <span class="status-muted">未绑定</span>
+    </div>
+
+    <!-- Lichess账号卡片 -->
+    <div class="section-card flex-col">
+        <div class="card-header">
+            <h3>Lichess 平台</h3>
         </div>
-        <div class="card-action">
-            <a href="/lichess/bind" class="btn-link">立即绑定</a>
+        <div class="card-body flex-1 flex-col justify-center">
+            {% if lichess_info %}
+                <div class="status-indicator success mb-4">
+                    <span class="dot pulse"></span>
+                    <span class="font-medium">平台已连接</span>
+                </div>
+                <div class="info-box mb-4">
+                    <span class="info-label">Lichess ID</span>
+                    <span class="badge badge-success text-lg">{{ lichess_info.lichess_username }}</span>
+                </div>
+                <div class="mt-auto">
+                    <a href="/lichess/bind" class="btn-outline btn-block">更换账号</a>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <div class="icon-placeholder mb-2">
+                        <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                    <p class="text-muted mb-4">连接 Lichess 以进行在线对弈</p>
+                    <a href="/lichess/bind" class="btn-primary btn-block">立即连接</a>
+                </div>
+            {% endif %}
         </div>
-    {% endif %}
+    </div>
+
+    <!-- 上传模式卡片 -->
+    <div class="section-card flex-col">
+        <div class="card-header">
+            <h3>数据同步模式</h3>
+        </div>
+        <div class="card-body flex-1 flex-col justify-center">
+            <div class="mode-toggle mb-6">
+                <div class="mode-option {{ 'active' if upload_mode == 0 else '' }}">
+                    <div class="mode-title">步步上传</div>
+                    <p class="mode-desc">每走一步即时同步至云端</p>
+                </div>
+                <div class="mode-option {{ 'active' if upload_mode == 1 else '' }}">
+                    <div class="mode-title">整局上传</div>
+                    <p class="mode-desc">对局结束后一次性同步记录</p>
+                </div>
+            </div>
+            
+            <div class="mt-auto">
+                <form method="post" action="/device/upload-mode">
+                    <input type="hidden" name="mode" value="{{ 0 if upload_mode == 1 else 1 }}">
+                    <button type="submit" class="btn-outline btn-block">
+                        切换为 {{ '步步上传' if upload_mode == 1 else '整局上传' }}
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

@@ -1,0 +1,31 @@
+{% extends "admin_base.html" %}
+{% block title %}用户管理 - AlphaGames{% endblock %}
+{% block page_title %}用户管理{% endblock %}
+
+{% block content %}
+<div class="section-card">
+    <div class="card-header">
+        <h3>所有用户</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="80">ID</th>
+                    <th>用户名</th>
+                    <th>注册时间</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+                <tr>
+                    <td class="text-muted">#{{ u.id }}</td>
+                    <td class="font-medium"><a href="/admin/users/{{ u.id }}" class="text-primary">{{ u.userName }}</a></td>
+                    <td class="text-muted">{{ u.createTime.strftime('%Y-%m-%d %H:%M') if u.createTime else '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

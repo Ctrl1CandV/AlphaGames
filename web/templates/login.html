@@ -1,15 +1,33 @@
 {% extends "base.html" %}
 {% block title %}登录 - AlphaGames{% endblock %}
 {% block content %}
-<h1>登录</h1>
-<form method="post">
-    <label>用户名
-        <input name="username" required autocomplete="username">
-    </label>
-    <label>密码
-        <input name="password" type="password" required autocomplete="current-password">
-    </label>
-    <button type="submit">登录</button>
-</form>
-<p class="hint">没有账号？<a href="/register">注册</a></p>
+<div class="auth-container">
+    <div class="auth-box">
+        <div class="auth-header">
+            <h1>欢迎回来</h1>
+            <p class="auth-subtitle">登录到您的 AlphaGames 账号</p>
+        </div>
+
+        <div class="role-tabs">
+            <a href="?role=user" class="tab-item {% if login_type != 'admin' %}active{% endif %}">用户登录</a>
+            <a href="?role=admin" class="tab-item {% if login_type == 'admin' %}active{% endif %}">管理员入口</a>
+        </div>
+
+        <form method="post" class="auth-form">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" name="username" required autocomplete="username" placeholder="请输入用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn-primary btn-block">登 录</button>
+        </form>
+        
+        {% if login_type != 'admin' %}
+        <p class="auth-footer">没有账号？<a href="/register">立即注册</a></p>
+        {% endif %}
+    </div>
+</div>
 {% endblock %}

@@ -1,0 +1,89 @@
+{% extends "admin_base.html" %}
+{% block title %}{{ user.userName }} - 用户详情{% endblock %}
+{% block page_title %}用户详情{% endblock %}
+
+{% block content %}
+<div class="flex-row gap-6 mb-6">
+    <div class="section-card flex-1">
+        <div class="card-header">
+            <h3>基本信息</h3>
+        </div>
+        <div class="card-body">
+            <div class="info-list">
+                <div class="info-item">
+                    <span class="info-label">用户 ID</span>
+                    <span class="info-value">#{{ user.id }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">用户名</span>
+                    <span class="info-value font-bold">{{ user.userName }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">注册时间</span>
+                    <span class="info-value">{{ user.createTime.strftime('%Y-%m-%d %H:%M') if user.createTime else '—' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-card flex-1">
+        <div class="card-header">
+            <h3>设备与平台绑定</h3>
+        </div>
+        <div class="card-body">
+            <div class="info-list">
+                <div class="info-item">
+                    <span class="info-label">物理棋盘 SN</span>
+                    <span class="info-value">
+                        {% if device %}
+                        <code class="text-primary">{{ device.sn }}</code>
+                        {% else %}
+                        <span class="text-muted">未绑定</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Lichess 账号</span>
+                    <span class="info-value">
+                        {% if lichess %}
+                        <span class="badge badge-success">{{ lichess.userName }}</span>
+                        {% else %}
+                        <span class="text-muted">未绑定</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="card-header">
+        <h3>最近对局 (Top 20)</h3>
+    </div>
+    <div class="table-responsive">
+        {% if records %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="80">ID</th>
+                    <th>对局时间</th>
+                    <th class="text-right">大小 (Bytes)</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in records %}
+                <tr>
+                    <td class="text-muted">#{{ r.id }}</td>
+                    <td>{{ r.createTime.strftime('%Y-%m-%d %H:%M') if r.createTime else '—' }}</td>
+                    <td class="text-right"><span class="badge badge-default">{{ r.data | length if r.data else 0 }} B</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">该用户暂无对局记录</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

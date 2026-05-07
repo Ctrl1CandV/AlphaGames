@@ -1,0 +1,33 @@
+{% extends "admin_base.html" %}
+{% block title %}对局记录 - AlphaGames{% endblock %}
+{% block page_title %}对局记录{% endblock %}
+
+{% block content %}
+<div class="section-card">
+    <div class="card-header">
+        <h3>最近 50 条对局</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="80">ID</th>
+                    <th>用户</th>
+                    <th>时间</th>
+                    <th class="text-right">大小 (Bytes)</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in records %}
+                <tr>
+                    <td class="text-muted">#{{ r.id }}</td>
+                    <td class="font-medium">{{ r.userName or '—' }}</td>
+                    <td class="text-muted">{{ r.createTime.strftime('%Y-%m-%d %H:%M') if r.createTime else '—' }}</td>
+                    <td class="text-right"><span class="badge badge-default">{{ r.data | length if r.data else 0 }} B</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

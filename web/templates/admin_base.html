@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}管理后台 - AlphaGames{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="admin-body">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <span class="brand-icon">&#9823;</span>
+            <span class="brand-text">AlphaGames</span>
+            <span class="badge">管理端</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/admin" class="nav-item {% if request.path == '/admin' or request.path == '/admin/' %}active{% endif %}">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                <span>统计概览</span>
+            </a>
+            <a href="/admin/users" class="nav-item {% if request.path.startswith('/admin/users') %}active{% endif %}">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                <span>用户管理</span>
+            </a>
+            <a href="/admin/records" class="nav-item {% if request.path.startswith('/admin/records') %}active{% endif %}">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                <span>对局记录</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="avatar">{{ current_user.username[0]|upper }}</div>
+                <div class="details">
+                    <span class="name">{{ current_user.username }}</span>
+                    <span class="role">{{ '系统管理员' if current_user.username == 'admin' else '管理员' }}</span>
+                </div>
+            </div>
+            <a href="/logout" class="btn-logout-icon" title="登出">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            </a>
+        </div>
+    </aside>
+    
+    <main class="admin-main">
+        <header class="admin-header">
+            <h2 class="page-title">{% block page_title %}控制台{% endblock %}</h2>
+        </header>
+        
+        <div class="admin-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                {% for category, msg in messages %}
+                    <div class="flash flash-{{ category }}">{{ msg }}</div>
+                {% endfor %}
+                </div>
+            {% endif %}
+            {% endwith %}
+            
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</body>
+</html>
