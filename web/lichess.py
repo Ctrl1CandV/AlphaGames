@@ -32,7 +32,7 @@ def bind_lichess():
     try:
         with SyncSessionFactory() as session:
             existing = session.query(ChessUser).filter_by(
-                userId=current_user.id, battlePlatform="lichess"
+                userId=current_user.raw_id, battlePlatform="lichess"
             ).first()
 
             if existing:
@@ -58,7 +58,7 @@ def bind_lichess():
                         return redirect(url_for("auth.dashboard"))
                     else:
                         session.add(ChessUser(
-                            userId=current_user.id,
+                            userId=current_user.raw_id,
                             userName=lichess_name,
                             token=lichess_token,
                             battlePlatform="lichess",
@@ -66,7 +66,7 @@ def bind_lichess():
                         session.commit()
                         flash("Lichess 账号绑定成功", "success")
                         return redirect(url_for("auth.dashboard"))
-    except Exception:
-        flash("服务器内部错误，请稍后重试", "error")
+    except Exception as e:
+        flash(str(e), "error")
 
     return render_template("bind_lichess.html", lichess_info=lichess_info)

@@ -10,19 +10,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 W, H = 800, 800
 SERVER = ("127.0.0.1", 8480)
-
-# SN 码 — 需先在 Web 端 (http://127.0.0.1:5000) 用测试账号绑定
-# 测试账号: user_id=1  user_name=时光
+"""
+SN 码 — 需先在 Web 端 (http://127.0.0.1:5000) 用测试账号绑定
+测试账号: user_id=2  user_name=User1
+"""
 SN_CODE = bytes([0x49, 0x43, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
 
 # 棋谱上传的 Tag 头(38字节)，用于 StepUpload 数据包前缀
 TAG = bytes([0xE5, 0xD4, 0xFE, 0x00, 0x2F, 0x00, 0x21, 0x35,
-             0x23, 0x59, 0xD8, 0xC6, 0xA3, 0xF5, 0x1F, 0xED,
-             0x4A, 0x9C, 0x1F, 0x87] + [0x00] * 18)
+    0x23, 0x59, 0xD8, 0xC6, 0xA3, 0xF5, 0x1F, 0xED,0x4A, 0x9C, 0x1F, 0x87] + [0x00] * 18
+)
 
 
 def _mkpkt(cmd, data=b""):
-    """封包: [0x39, cmd, len+4(2B LE), data]"""
+    """ 封包: [0x39, cmd, len+4(2B LE), data] """
     n = len(data) + 4
     return bytes([0x39, cmd, n & 0xFF, (n >> 8) & 0xFF]) + data
 
@@ -35,7 +36,7 @@ def _log(msg):
     print(f"[client] {msg}")
 
 class ChessClient:
-    def __init__(self):
+    def __init__(self, mode=0x14):
         self.sock = None
         self.board = chess.Board()
         self.flip = False
@@ -49,7 +50,7 @@ class ChessClient:
         self.lock = threading.Lock()
         self.ui = ChessBoardUI(W, H)
         self._mouse_was_down = False
-        self._mode = 0x14  # 0x14=人机, 0x15=人人
+        self._mode = mode
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -111,8 +112,8 @@ class ChessClient:
 
         elif cmd == 0x21:  # NotifyOpenUpload
             if msg and msg[0] == 0xC0:
-                mode_name = "人机" if self._mode == 0x14 else "人人"
-                _log(f"选择对战模式: {mode_name} (0x{self._mode:02X})")
+                mode_names = {0x13: "本地AI", 0x14: "远程AI", 0x15: "远程人"}
+                _log(f"选择对战模式: {mode_names.get(self._mode, '?')} (0x{self._mode:02X})")
                 self.send(0x20, bytes([self._mode]))
 
         elif cmd == 0x50:  # Opening
@@ -137,7 +138,10 @@ class ChessClient:
                 self.send(0x20, bytes([0x07, 0xC0]))
                 self.playing = True
             elif msg and msg[0] == 0x0A:
-                _log("游戏结束 / 开局失败")
+                if self.playing:
+                    _log("游戏结束")
+                else:
+                    _log("开局失败")
                 self.playing = False
                 self.my_color = None
                 self.sel = None
@@ -244,9 +248,14 @@ class ChessClient:
                     elif ev.key == pygame.K_r and self.playing:
                         self.send(0x20, bytes([0x0A]))
                     elif ev.key == pygame.K_m and not self.playing:
-                        self._mode = 0x15 if self._mode == 0x14 else 0x14
-                        mode_name = "人人" if self._mode == 0x15 else "人机"
-                        _log(f"切换模式 → {mode_name} (0x{self._mode:02X})")
+                        if self._mode == 0x13:
+                            self._mode = 0x14
+                        elif self._mode == 0x14:
+                            self._mode = 0x15
+                        else:
+                            self._mode = 0x13
+                        mode_names = {0x13: "本地AI", 0x14: "远程AI", 0x15: "远程人"}
+                        _log(f"切换模式 → {mode_names[self._mode]} (0x{self._mode:02X})")
 
             self._handle_click()
 
@@ -260,4 +269,5 @@ class ChessClient:
 
 
 if __name__ == "__main__":
-    ChessClient().run()
+    # 0x13为本地人机对战，0x14为lichess人机对战，0x15为lichess人人对战
+    ChessClient(0x14).run()

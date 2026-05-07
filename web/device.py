@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from core.database import SyncSessionFactory
-from models import Device
+from models import Device, ChessUploadMode
 
 device_bp = Blueprint("device", __name__)
 
@@ -42,3 +42,28 @@ def bind_device():
         flash("服务器内部错误，请稍后重试", "error")
 
     return render_template("bind_device.html", device=mine)
+
+
+@device_bp.route("/device/upload-mode", methods=["POST"])
+@login_required
+def toggle_upload_mode():
+    mode = int(request.form.get("mode", "0"))
+    if mode not in (0, 1):
+        mode = 0
+    try:
+        with SyncSessionFactory() as session:
+            record = session.query(ChessUploadMode).filter_by(
+                userName=current_user.username
+            ).first()
+            if record:
+                record.uploadMode = mode
+            else:
+                session.add(ChessUploadMode(
+                    userName=current_user.username, uploadMode=mode
+                ))
+            session.commit()
+            label = "整局上传" if mode == 1 else "步步上传"
+            flash(f"上传模式已切换为：{label}", "success")
+    except Exception:
+        flash("切换失败，请稍后重试", "error")
+    return redirect(url_for("auth.dashboard"))
