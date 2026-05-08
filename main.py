@@ -26,6 +26,20 @@ async def main():
     from core.database import init_db_sync
     init_db_sync()
 
+    from core.database import SyncSessionFactory
+    from models import Admin
+    from werkzeug.security import generate_password_hash
+    with SyncSessionFactory() as session:
+        admin = session.query(Admin).filter_by(userName="admin").first()
+        if not admin:
+            # 目前默认为admin，admin，后期更改
+            session.add(Admin(
+                userName="admin",
+                password=generate_password_hash("admin"),
+            ))
+            session.commit()
+            web_logger.info("已创建系统管理员: admin/admin")
+
     # Flask 后台线程
     flask_thread = threading.Thread(target=_start_flask, daemon=True)
     flask_thread.start()

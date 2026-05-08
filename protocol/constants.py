@@ -32,6 +32,7 @@ class EnumCommandCode(Enum):
     MoveSucess = 0xa0           # 移动成功
     MoveFail = 0xa1             # 移动失败
     AudioFile = 0x48            # 音频文件
+    TextResponse = 0x49         # 语音识别文本回复
 
 class EnumChessCmdType(Enum):
     """ 国际象棋命令类型 """

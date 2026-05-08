@@ -12,6 +12,7 @@ from protocol.chess_opening_proto import build_opening_data
 from core.move_handler import binary_to_uci, uci_to_binary
 from protocol.chess_step_proto import ChessStepProto
 from services.lichess_service import LichessSession
+from services.voice_service import VoiceService
 from core.engine import get_stockfish_pool
 from services.db_service import DbService
 from core.board import ChessBoard
@@ -22,6 +23,9 @@ import traceback
 import asyncio
 import random
 import json
+import struct
+import os
+import tempfile
 
 class ChessService(BaseSession):
     def __init__(self, reader, writer, logger=None):
@@ -36,6 +40,10 @@ class ChessService(BaseSession):
         self._lichess = None                                # LichessSession
         self._state = "IDLE"                                # 初始状态
         self._running = True                                # 运行标志
+        self._voice_buffer = bytearray()                    # 语音数据缓冲区
+        self._voice_total = 0                               # 语音总长度
+        self._voice_service = VoiceService(logger=self.logger)
+        self._auto_moving = False                           # 棋盘自动行棋中
 
     async def handle(self):
         self._log("会话开始")
@@ -119,6 +127,12 @@ class ChessService(BaseSession):
             await self._handle_move_on(message)
         elif cmd == EnumCommandCode.MoveVerify.value:
             await self._handle_move_verify(message)
+        elif cmd == EnumCommandCode.StartMove.value:
+            await self._handle_start_move(message)
+        elif cmd == EnumCommandCode.EndMove.value:
+            await self._handle_end_move(message)
+        elif cmd == EnumCommandCode.AudioFile.value:
+            await self._handle_audio_file(message)
         else:
             self._log(f"未处理的命令: 0x{command:02X}")
 
@@ -137,8 +151,13 @@ class ChessService(BaseSession):
         else:
             self._log("SN未绑定用户")
 
-        self._log("下发步步上传模式")
-        await self.send_data(EnumCommandCode.StepUpload.value, None)
+        upload_mode = await self._db.get_upload_mode(self.user_name)
+        if upload_mode == 1:
+            self._log("下发整局上传模式")
+            await self.send_data(EnumCommandCode.AllUpload.value, None)
+        else:
+            self._log("下发步步上传模式")
+            await self.send_data(EnumCommandCode.StepUpload.value, None)
         self._state = "WAIT_UPLOAD_MODE"
 
     async def _handle_step_upload(self, message):
@@ -172,6 +191,13 @@ class ChessService(BaseSession):
             self._state = "WAIT_GAME_MODE"
             return
 
+        self._log(f"收到整局上传数据，长度={len(message)}")
+        if self.user_name:
+            try:
+                await self._db.save_chess_record(self.user_name, bytes(message))
+            except Exception:
+                self._log("整局棋谱保存失败", "error")
+
     async def _handle_notify_open_upload(self, message):
         if message and len(message) == 1 and message[0] == EnumCommandCode.OkStatusCode.value:
             self._log("棋盘成功配置上传模式")
@@ -193,6 +219,9 @@ class ChessService(BaseSession):
                 return
             self._log(f"棋盘选择对战模式: 0x{key:02X}")
 
+            if key == EnumKeyInfo.ManVsRemoteMachine.value:
+                await self._handle_lichess_ai_mode(key)
+                return
             if key == EnumKeyInfo.ManVsRemoteMan.value:
                 await self._handle_lichess_mode(key)
                 return
@@ -278,6 +307,123 @@ class ChessService(BaseSession):
     async def _handle_move_verify(self, message):
         pass
 
+    async def _handle_start_move(self, message):
+        self._log("棋盘自动行棋中")
+        self._auto_moving = True
+
+    async def _handle_end_move(self, message):
+        self._log("棋盘自动行棋结束")
+        self._auto_moving = False
+
+    async def _handle_audio_file(self, message):
+        if message is None or len(message) < 2:
+            return
+
+        file_id = struct.unpack("<H", message[:2])[0]
+
+        if file_id == 0 and len(message) >= 6:
+            self._voice_buffer = bytearray()
+            self._voice_total = struct.unpack("<I", message[2:6])[0]
+            data = message[6:]
+            self._log(f"语音接收开始 总长度={self._voice_total}")
+        else:
+            data = message[2:]
+
+        self._voice_buffer.extend(data)
+        if self._voice_total > 0 and len(self._voice_buffer) >= self._voice_total:
+            self._log("语音接收完成，开始识别")
+            await self._process_voice()
+
+    async def _process_voice(self):
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            with open(temp_path, "wb") as f:
+                f.write(self._voice_buffer[:self._voice_total])
+
+            text = await self._voice_service.speech_to_text(temp_path)
+            if not text:
+                await self.send_data(
+                    EnumCommandCode.AudioFile.value,
+                    bytes([EnumCommandCode.FailStatusCode.value]),
+                )
+                return
+
+            intent = self._voice_service.parse_intent(text)
+
+            if intent == "start_game_ai":
+                self._log("语音指令：开始人机对战")
+                await self.send_data(
+                    EnumCommandCode.AudioFile.value,
+                    bytes([EnumCommandCode.OkStatusCode.value]),
+                )
+                await self._handle_lichess_ai_mode(EnumKeyInfo.ManVsRemoteMachine.value)
+
+            elif intent == "start_game_human":
+                self._log("语音指令：开始人人对战")
+                await self.send_data(
+                    EnumCommandCode.AudioFile.value,
+                    bytes([EnumCommandCode.OkStatusCode.value]),
+                )
+                await self._handle_lichess_mode(EnumKeyInfo.ManVsRemoteMan.value)
+
+            elif intent == "query_opening":
+                moves = " ".join(self.board.move_stack()) if self.board.move_stack() else "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                await self.send_data(
+                    EnumCommandCode.TextResponse.value,
+                    moves.encode("utf-8"),
+                )
+
+            elif intent == "query_moves":
+                fen = self.board.fen()
+                await self.send_data(
+                    EnumCommandCode.TextResponse.value,
+                    fen.encode("utf-8"),
+                )
+
+            else:
+                response = await self._voice_service.ai_chat(text)
+                if not response:
+                    await self.send_data(
+                        EnumCommandCode.AudioFile.value,
+                        bytes([EnumCommandCode.FailStatusCode.value]),
+                    )
+                    return
+                pcm = await self._voice_service.text_to_speech(response)
+                if not pcm:
+                    await self.send_data(
+                        EnumCommandCode.AudioFile.value,
+                        bytes([EnumCommandCode.FailStatusCode.value]),
+                    )
+                    return
+                await self._stream_audio_response(pcm)
+
+        except Exception as e:
+            self._log(f"语音处理异常: {e}", "error")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    async def _stream_audio_response(self, pcm_data):
+        total = len(pcm_data)
+        self._log(f"TTS音频总长度={total}")
+
+        header = struct.pack("<HI", 0, total)
+        await self.send_data(EnumCommandCode.AudioFile.value, header)
+
+        chunk_size = 1024
+        offset = 0
+        seq = 1
+        while offset < total:
+            end = min(offset + chunk_size, total)
+            chunk = struct.pack("<H", seq) + pcm_data[offset:end]
+            await self.send_data(EnumCommandCode.AudioFile.value, chunk)
+            offset = end
+            seq += 1
+            await asyncio.sleep(0.02)
+        self._log("音频流发送完毕")
+
     async def _handle_lichess_mode(self, mode_key):
         if not self.user_id:
             self._log("人人对战需要绑定用户")
@@ -295,6 +441,44 @@ class ChessService(BaseSession):
         await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
         self._state = "LICHESS_SEEKING"
         asyncio.create_task(self._lichess_play(bind["token"]))
+
+    async def _handle_lichess_ai_mode(self, mode_key):
+        if not self.user_id:
+            self._log("远程人机需要绑定用户")
+            await self._send_open_fail()
+            return
+
+        bind = await self._db.get_bind_info(self.user_id, "lichess")
+        if not bind.get("token"):
+            self._log("未绑定Lichess账号")
+            await self._send_open_fail()
+            return
+
+        self._game_mode = "lichess"
+        battle_bytes = bytes([mode_key, EnumCommandCode.OkStatusCode.value])
+        await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
+        self._state = "LICHESS_SEEKING"
+        asyncio.create_task(self._lichess_ai_play(bind["token"]))
+
+    async def _lichess_ai_play(self, token):
+        try:
+            self._lichess = LichessSession(token, logger=self.logger)
+            await self._lichess.challenge_ai(
+                level=3,
+                time_min=Config.LICHESS_SEEK_TIME,
+                increment_sec=Config.LICHESS_SEEK_INCREMENT,
+            )
+            await self._lichess.start_game_stream()
+
+            my_color = self._lichess.my_color
+            self.chess_board_camp = (my_color == "white")
+            self._log(f"Lichess AI开局成功 阵营={'白' if self.chess_board_camp else '黑'}")
+
+            await self._send_opening_data()
+            self._state = "WAIT_OPENING"
+        except Exception as e:
+            self._log(f"Lichess AI开局失败: {e}", "error")
+            await self._on_game_ended()
 
     async def _send_open_fail(self):
         await self.send_data(
@@ -454,6 +638,13 @@ class ChessService(BaseSession):
         result = self.board.result()
         reason = "投降" if is_surrender else f"终局({result})"
         self._log(f"游戏结束: {reason}")
+
+        if self._auto_moving:
+            self._log("等待棋盘自动行棋完成...")
+            for _ in range(30):
+                await asyncio.sleep(0.5)
+                if not self._auto_moving:
+                    break
 
         await self.send_data(
             EnumCommandCode.EnableKey.value,
