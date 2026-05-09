@@ -3,7 +3,7 @@ class Config:
     TCP_PORT = 8480
 
     MYSQL_USER = 'root'
-    MYSQL_PASSWORD = 'mysql'
+    MYSQL_PASSWORD = 'mysql'        # 开发环境暂时明文硬编码
     MYSQL_DB = 'alpha_platform'
     DB_URL = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@127.0.0.1:3306/{MYSQL_DB}"
 
@@ -19,7 +19,7 @@ class Config:
 
     FLASK_HOST = "127.0.0.1"
     FLASK_PORT = 5000
-    SECRET_KEY = "alpha-games-secret-key"
+    SECRET_KEY = "alpha-games-secret-key"   # 开发环境暂时明文硬编码
 
     XUNFEI_APPID = "914a5257"
     XUNFEI_API_KEY = "dbe4766077d66c698524cd1314cf2c3f"
