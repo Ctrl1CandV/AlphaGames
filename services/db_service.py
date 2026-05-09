@@ -1,4 +1,4 @@
-from models import Device, ChessUploadMode, ChessRecord, ChessUser, User
+from models import Device, ChessUploadMode, ChessRecord, ChessUser, User, GameConfig
 from core.database import AsyncSessionFactory
 from sqlalchemy import select
 import logging
@@ -8,10 +8,10 @@ class DbService:
         self.logger = logger or logging.getLogger("AlphaGames")
 
     async def get_user_by_sn(self, sn: str) -> tuple[int | None, str | None]:
-        """ 根据设备SN获取用户名称 """
+        """ 根据设备SN获取最近绑定的用户 """
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                select(Device).where(Device.sn == sn)
+                select(Device).where(Device.sn == sn).order_by(Device.updateTime.desc())
             )
             device = result.scalars().first()
             if not device or not device.userName:
@@ -58,5 +58,22 @@ class DbService:
                 return {
                     "lichess_username": user.userName,
                     "token": user.token,
+                }
+            return {}
+
+    async def get_game_config(self, username: str) -> dict:
+        if not username:
+            return {}
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                select(GameConfig).where(GameConfig.userName == username)
+            )
+            cfg = result.scalars().first()
+            if cfg:
+                return {
+                    "engineColor": cfg.engineColor,
+                    "aiLevel": cfg.aiLevel,
+                    "time": cfg.time,
+                    "increment": cfg.increment,
                 }
             return {}
