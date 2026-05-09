@@ -73,10 +73,12 @@ def create_app():
     from web.device import device_bp
     from web.lichess import lichess_bp
     from web.admin import admin_bp
+    from web.game_config import game_config_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(device_bp)
     app.register_blueprint(lichess_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(game_config_bp)
 
     return app

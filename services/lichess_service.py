@@ -25,7 +25,32 @@ class LichessSession:
     def game_id(self):
         return self._game_id
 
+    async def _check_and_abort_ongoing(self):
+        from requests import get, post
+
+        token = self._client.session.token
+        loop = asyncio.get_running_loop()
+
+        def _check():
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                resp = get("https://lichess.org/api/account/playing", headers=headers, timeout=10)
+                if resp.status_code != 200:
+                    return
+                data = resp.json()
+                for game in data.get("nowPlaying", []):
+                    gid = game.get("gameId")
+                    if not gid:
+                        continue
+                    post(f"https://lichess.org/api/board/game/{gid}/resign", headers=headers, timeout=10)
+                    self._log(f"已关闭进行中的对局: {gid}")
+            except Exception as e:
+                self._log(f"检查进行中对局异常: {e}")
+
+        await loop.run_in_executor(None, _check)
+
     async def seek_until_found(self, time=10, increment=5):
+        await self._check_and_abort_ongoing()
         self._running = True
         loop = asyncio.get_running_loop()
 
@@ -72,7 +97,8 @@ class LichessSession:
                 self._log(f"匹配成功 game_id={self._game_id} color={self._my_color}")
                 return
 
-    async def challenge_ai(self, level=3, time_min=10, increment_sec=5):
+    async def challenge_ai(self, level=3, time_min=10, increment_sec=5, color="random"):
+        await self._check_and_abort_ongoing()
         self._running = True
         loop = asyncio.get_running_loop()
 
@@ -81,7 +107,7 @@ class LichessSession:
                 level=level,
                 clock_limit=time_min * 60,
                 clock_increment=increment_sec,
-                color="random",
+                color=color,
                 variant="standard",
             )
 
@@ -169,21 +195,46 @@ class LichessSession:
         self._log("投降")
 
     async def wait_for_opponent_move(self):
-        while self._running:
-            state = await asyncio.wait_for(self._states.get(), timeout=60)
-            stype = state.get("type") if isinstance(state, dict) else getattr(state, "type", None)
-            if stype == "gameState":
-                moves_str = state.get("moves", "") if isinstance(state, dict) else getattr(state, "moves", "")
-                moves = moves_str.split()
-                if len(moves) > self._move_count:
-                    new_moves = moves[self._move_count:]
-                    self._move_count = len(moves)
-                    opp_uci = new_moves[-1]
-                    self._log(f"对手走棋: {opp_uci}")
-                    return opp_uci
-            elif stype == "gameFinish":
-                self._log("对局结束")
-                raise ConnectionAbortedError("gameFinish")
+        for retry in range(3):
+            try:
+                while self._running:
+                    state = await asyncio.wait_for(self._states.get(), timeout=60)
+                    stype = state.get("type") if isinstance(state, dict) else getattr(state, "type", None)
+                    if stype == "gameState":
+                        moves_str = state.get("moves", "") if isinstance(state, dict) else getattr(state, "moves", "")
+                        moves = moves_str.split()
+                        if len(moves) > self._move_count:
+                            new_moves = moves[self._move_count:]
+                            self._move_count = len(moves)
+                            opp_uci = new_moves[-1]
+                            self._log(f"对手走棋: {opp_uci}")
+                            return opp_uci
+                    elif stype == "gameFinish":
+                        self._log("对局结束")
+                        raise ConnectionAbortedError("gameFinish")
+            except asyncio.TimeoutError:
+                self._log(f"等待对手走棋超时，尝试重连第{retry + 1}次")
+                await self._restart_state_stream()
+            except Exception as e:
+                self._log(f"状态流异常: {e}，尝试重连第{retry + 1}次")
+                await self._restart_state_stream()
+        raise ConnectionAbortedError("对手超时无响应")
+
+    async def _restart_state_stream(self):
+        self._running = True
+        loop = asyncio.get_running_loop()
+
+        def _stream():
+            try:
+                for state in self._client.board.stream_game_state(self._game_id):
+                    if not self._running:
+                        break
+                    asyncio.run_coroutine_threadsafe(self._states.put(state), loop)
+            except Exception as e:
+                self._log(f"状态流重连异常: {e}", "error")
+
+        self._state_thread = threading.Thread(target=_stream, daemon=True)
+        self._state_thread.start()
 
     def shutdown(self):
         self._running = False

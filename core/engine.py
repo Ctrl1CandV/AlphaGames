@@ -49,6 +49,10 @@ class StockfishEngine:
         self._log(f"Stockfish 走棋: {uci}")
         return uci
 
+    def set_skill_level(self, level):
+        if self._engine:
+            self._engine.configure({"Skill Level": level})
+
     async def quit(self):
         if self._engine:
             loop = asyncio.get_running_loop()
