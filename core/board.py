@@ -1,5 +1,5 @@
-import chess
 import logging
+import chess
 
 class ChessBoard:
     """

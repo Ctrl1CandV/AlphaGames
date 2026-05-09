@@ -1,6 +1,7 @@
 from services.chess_service import ChessService
 import asyncio
 import logging
+import socket
 
 class TcpServer:
     """
@@ -20,6 +21,14 @@ class TcpServer:
             host=self.host,
             port=self.port,
         )
+        for s in self._server.sockets:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, 'TCP_KEEPIDLE'):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+            if hasattr(socket, 'TCP_KEEPINTVL'):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+            if hasattr(socket, 'TCP_KEEPCNT'):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
         addr = self._server.sockets[0].getsockname()
         self.logger.info(f"TCP服务器已启动 {addr}")
 

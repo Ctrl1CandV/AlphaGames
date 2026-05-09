@@ -20,12 +20,12 @@ from config import Config
 
 from datetime import datetime, timezone
 import traceback
+import tempfile
 import asyncio
 import random
-import json
 import struct
+import json
 import os
-import tempfile
 
 class ChessService(BaseSession):
     def __init__(self, reader, writer, logger=None):
@@ -44,6 +44,7 @@ class ChessService(BaseSession):
         self._voice_total = 0                               # 语音总长度
         self._voice_service = VoiceService(logger=self.logger)
         self._auto_moving = False                           # 棋盘自动行棋中
+        self._game_config = {}                              # 对局配置缓存
 
     async def handle(self):
         self._log("会话开始")
@@ -220,12 +221,15 @@ class ChessService(BaseSession):
             self._log(f"棋盘选择对战模式: 0x{key:02X}")
 
             if key == EnumKeyInfo.ManVsRemoteMachine.value:
+                self._game_config = await self._db.get_game_config(self.user_name)
                 await self._handle_lichess_ai_mode(key)
                 return
             if key == EnumKeyInfo.ManVsRemoteMan.value:
+                self._game_config = await self._db.get_game_config(self.user_name)
                 await self._handle_lichess_mode(key)
                 return
 
+            self._game_config = await self._db.get_game_config(self.user_name)
             self._game_mode = "stockfish"
             battle_bytes = bytes([key, EnumCommandCode.OkStatusCode.value])
             await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
@@ -265,7 +269,13 @@ class ChessService(BaseSession):
         self._log("棋盘已按开局数据摆好棋子")
 
         if self._game_mode != "lichess":
-            self.chess_board_camp = random.choice([True, False])
+            cfg_color = self._game_config.get("engineColor", "random")
+            if cfg_color == "white":
+                self.chess_board_camp = True
+            elif cfg_color == "black":
+                self.chess_board_camp = False
+            else:
+                self.chess_board_camp = random.choice([True, False])
 
         camp_name = "白方" if self.chess_board_camp else "黑方"
         self._log(f"分配阵营: {camp_name}")
@@ -305,7 +315,15 @@ class ChessService(BaseSession):
             self._log("棋盘确认收到行棋数据")
 
     async def _handle_move_verify(self, message):
-        pass
+        if not message or len(message) < 1:
+            return
+        status = message[0]
+        if status == EnumCommandCode.MoveSucess.value:
+            self._log("棋盘确认走棋成功")
+        elif status == EnumCommandCode.MoveFail.value:
+            self._log("棋盘拒绝走棋", "error")
+        else:
+            self._log(f"棋盘走棋确认: 0x{status:02X}")
 
     async def _handle_start_move(self, message):
         self._log("棋盘自动行棋中")
@@ -369,11 +387,18 @@ class ChessService(BaseSession):
                 await self._handle_lichess_mode(EnumKeyInfo.ManVsRemoteMan.value)
 
             elif intent == "query_opening":
-                moves = " ".join(self.board.move_stack()) if self.board.move_stack() else "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-                await self.send_data(
-                    EnumCommandCode.TextResponse.value,
-                    moves.encode("utf-8"),
-                )
+                moves = self.board.move_stack()
+                opening = self._voice_service.lookup_opening(moves)
+                if opening:
+                    await self.send_data(
+                        EnumCommandCode.TextResponse.value,
+                        opening.encode("utf-8"),
+                    )
+                else:
+                    await self.send_data(
+                        EnumCommandCode.AudioFile.value,
+                        bytes([EnumCommandCode.FailStatusCode.value]),
+                    )
 
             elif intent == "query_moves":
                 fen = self.board.fen()
@@ -461,12 +486,14 @@ class ChessService(BaseSession):
         asyncio.create_task(self._lichess_ai_play(bind["token"]))
 
     async def _lichess_ai_play(self, token):
+        cfg = self._game_config
         try:
             self._lichess = LichessSession(token, logger=self.logger)
             await self._lichess.challenge_ai(
-                level=3,
-                time_min=Config.LICHESS_SEEK_TIME,
-                increment_sec=Config.LICHESS_SEEK_INCREMENT,
+                level=cfg.get("aiLevel", 3),
+                time_min=cfg.get("time", Config.LICHESS_SEEK_TIME),
+                increment_sec=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
+                color=cfg.get("engineColor", "random"),
             )
             await self._lichess.start_game_stream()
 
@@ -599,8 +626,11 @@ class ChessService(BaseSession):
 
     async def _engine_move(self):
         engine = None
+        ai_level = self._game_config.get("aiLevel", 3)
+        stockfish_level = min(20, max(1, ai_level * 2 + 2))
         for attempt in (1, 2):
             engine = await self._pool.acquire()
+            engine.set_skill_level(stockfish_level)
             try:
                 ai_uci = await engine.get_best_move(self.board)
                 break
