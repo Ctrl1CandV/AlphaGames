@@ -100,5 +100,38 @@
             </div>
         </div>
     </div>
+
+    <!-- 对局配置卡片 -->
+    <div class="section-card flex-col">
+        <div class="card-header">
+            <h3>对局配置</h3>
+        </div>
+        <div class="card-body flex-1 flex-col justify-center">
+            {% if game_config %}
+                <div class="flex-col gap-3 mb-4">
+                    <div class="flex-between">
+                        <span class="text-muted">阵营</span>
+                        <span class="font-medium">{{ {'white':'白方','black':'黑方','random':'随机'}[game_config.engineColor] }}</span>
+                    </div>
+                    <div class="flex-between">
+                        <span class="text-muted">AI 难度</span>
+                        <span class="font-medium">{{ game_config.aiLevel }}</span>
+                    </div>
+                    <div class="flex-between">
+                        <span class="text-muted">时间 / 加秒</span>
+                        <span class="font-medium">{{ game_config.time }}m + {{ game_config.increment }}s</span>
+                    </div>
+                </div>
+                <div class="mt-auto">
+                    <a href="/game/config" class="btn-outline btn-block">修改配置</a>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p class="text-muted mb-4">使用默认对局参数</p>
+                    <a href="/game/config" class="btn-primary btn-block">自定义配置</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
 </div>
 {% endblock %}
