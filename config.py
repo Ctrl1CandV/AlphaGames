@@ -8,7 +8,6 @@ class Config:
     DB_URL = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@127.0.0.1:3306/{MYSQL_DB}"
 
     STOCKFISH_PATH = "stockfish-windows-x86-64-avx2.exe"
-    STOCKFISH_SKILL_LEVEL = 10
     STOCKFISH_THINK_TIME = 0.5
 
     DEFAULT_UPLOAD_MODE = 0

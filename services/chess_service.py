@@ -605,7 +605,7 @@ class ChessService(BaseSession):
     async def _engine_move(self):
         engine = None
         ai_level = self._game_config.get("aiLevel", 3)
-        stockfish_level = min(20, max(1, ai_level * 2 + 2))
+        stockfish_level = min(20, max(0, ai_level * 2))
         for attempt in (1, 2):
             engine = await self._pool.acquire()
             engine.set_skill_level(stockfish_level)

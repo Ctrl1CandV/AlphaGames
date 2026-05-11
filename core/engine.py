@@ -10,26 +10,23 @@ class StockfishEngine:
     主要方法：start(): 启动引擎、get_best_move(): 计算最佳走棋、quit(): 关闭引擎
     配置项：
     - STOCKFISH_PATH: 引擎路径
-    - STOCKFISH_SKILL_LEVEL: AI技能等级 (0-20)
     - STOCKFISH_THINK_TIME: 思考时间（秒）
     使用场景：人机对战、AI分析、走棋建议
     """
-    def __init__(self, logger=None, skill_level=None):
+    def __init__(self, logger=None):
         self.logger = logger or logging.getLogger("AlphaGames")
-        self.skill_level = skill_level if skill_level else Config.STOCKFISH_SKILL_LEVEL
         self._engine = None
 
     async def start(self):
         # 获取当前运行的事件循环
         loop = asyncio.get_running_loop()
 
-        # 初始化stockfish引擎并设置难度等级
+        # 初始化stockfish引擎
         self._engine = await loop.run_in_executor(
             None,
             lambda: chess.engine.SimpleEngine.popen_uci(Config.STOCKFISH_PATH),
         )
-        self._engine.configure({"Skill Level": self.skill_level})
-        self._log(f"Stockfish 已启动 难度级别={self.skill_level}")
+        self._log("Stockfish 已启动")
 
     async def get_best_move(self, board):
         if self._engine is None:
