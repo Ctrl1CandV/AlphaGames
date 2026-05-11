@@ -117,10 +117,23 @@ class LichessSession:
                 variant="standard",
             )
 
-        game = await loop.run_in_executor(None, _challenge)
-        self._game_id = self._attr(game, "id")
-        self._my_color = self._attr(game, "color")
-        self._log(f"AI挑战成功 game_id={self._game_id} color={self._my_color}")
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                game = await loop.run_in_executor(None, _challenge)
+                self._game_id = self._attr(game, "id")
+                self._my_color = self._attr(game, "color")
+                if attempt > 1:
+                    self._log(f"AI挑战成功(第{attempt}次) game_id={self._game_id} color={self._my_color}")
+                else:
+                    self._log(f"AI挑战成功 game_id={self._game_id} color={self._my_color}")
+                return
+            except Exception as e:
+                last_error = e
+                self._log(f"AI挑战网络异常(第{attempt}/3次): {e}", "error" if attempt == 3 else "info")
+                if attempt < 3:
+                    await asyncio.sleep(2)
+        raise last_error
 
     async def start_game_stream(self):
         loop = asyncio.get_running_loop()
