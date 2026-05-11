@@ -1,10 +1,10 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
 from core.database import SyncSessionFactory
 from models import GameConfig
 
-game_config_bp = Blueprint("game_config", __name__)
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 
+game_config_bp = Blueprint("game_config", __name__)
 
 @game_config_bp.route("/game/config", methods=["GET", "POST"])
 @login_required

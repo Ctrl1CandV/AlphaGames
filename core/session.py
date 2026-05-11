@@ -25,16 +25,14 @@ class BaseSession:
 
     async def send_data(self, command, data):
         if not self._connected:
-            return bytes([0x00, 0x00, 0x00, 0x00])
+            return
         packet = MessageProto.encode(command, data)
         try:
             self.writer.write(packet)
             await self.writer.drain()
             self._log(f"发送 命令=0x{command:02X} 数据={self._hex_str(packet)}")
-            return packet
         except Exception:
             self._connected = False
-            return bytes([0x00, 0x00, 0x00, 0x00])
 
     async def close(self):
         try:

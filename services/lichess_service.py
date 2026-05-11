@@ -25,6 +25,12 @@ class LichessSession:
     def game_id(self):
         return self._game_id
 
+    @staticmethod
+    def _attr(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
     async def _check_and_abort_ongoing(self):
         from requests import get, post
 
@@ -59,7 +65,7 @@ class LichessSession:
                 for event in self._client.board.stream_incoming_events():
                     if not self._running:
                         break
-                    etype = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+                    etype = self._attr(event, "type")
                     if etype in ("gameStart", "gameFinish", "challenge"):
                         asyncio.run_coroutine_threadsafe(self._events.put(event), loop)
             except Exception as e:
@@ -72,6 +78,8 @@ class LichessSession:
         while self._running:
             attempt += 1
             self._log(f"第{attempt}次寻找对手...")
+            while not self._events.empty():
+                self._events.get_nowait()
             try:
                 await loop.run_in_executor(
                     None,
@@ -82,18 +90,15 @@ class LichessSession:
                 await asyncio.sleep(2)
                 continue
 
-            found = False
-            while not self._events.empty():
-                event = self._events.get_nowait()
-                etype = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
-                if etype == "gameStart":
-                    game = event.get("game") if isinstance(event, dict) else getattr(event, "game", {})
-                    game_data = game if isinstance(game, dict) else game.__dict__ if hasattr(game, '__dict__') else {}
-                    self._game_id = game_data.get("id") or getattr(game, "id", None)
-                    self._my_color = game_data.get("color") or getattr(game, "color", None)
-                    found = True
-                    break
-            if found:
+            try:
+                event = await asyncio.wait_for(self._events.get(), timeout=15)
+            except asyncio.TimeoutError:
+                continue
+            etype = self._attr(event, "type")
+            if etype == "gameStart":
+                game = self._attr(event, "game", {})
+                self._game_id = self._attr(game, "id")
+                self._my_color = self._attr(game, "color")
                 self._log(f"匹配成功 game_id={self._game_id} color={self._my_color}")
                 return
 
@@ -112,9 +117,8 @@ class LichessSession:
             )
 
         game = await loop.run_in_executor(None, _challenge)
-        game_data = game if isinstance(game, dict) else game.__dict__ if hasattr(game, '__dict__') else {}
-        self._game_id = game_data.get("id") or getattr(game, "id", None)
-        self._my_color = game_data.get("color") or getattr(game, "color", None)
+        self._game_id = self._attr(game, "id")
+        self._my_color = self._attr(game, "color")
         self._log(f"AI挑战成功 game_id={self._game_id} color={self._my_color}")
 
     async def start_game_stream(self):
@@ -133,25 +137,25 @@ class LichessSession:
         self._state_thread.start()
 
         state = await asyncio.wait_for(self._states.get(), timeout=15)
-        stype = state.get("type") if isinstance(state, dict) else getattr(state, "type", None)
+        stype = self._attr(state, "type")
         if stype != "gameFull":
             self._log(f"未预期的初始状态: {stype}", "error")
             return
 
         if not self._my_color:
             self._resolve_color_from_players(state)
-        inner = state.get("state") if isinstance(state, dict) else getattr(state, "state", None)
-        moves_str = inner.get("moves", "") if isinstance(inner, dict) else getattr(inner, "moves", "")
-        status = inner.get("status", "") if isinstance(inner, dict) else getattr(inner, "status", "")
+        inner = self._attr(state, "state")
+        moves_str = self._attr(inner, "moves", "")
+        status = self._attr(inner, "status", "")
         self._move_count = len(moves_str.split()) if moves_str else 0
         self._log(f"gameFull color={self._my_color} status={status} moves={self._move_count}")
 
         if status != "started":
             state2 = await asyncio.wait_for(self._states.get(), timeout=15)
-            stype2 = state2.get("type") if isinstance(state2, dict) else getattr(state2, "type", None)
+            stype2 = self._attr(state2, "type")
             if stype2 == "gameState":
-                inner2 = state2.get("status") if isinstance(state2, dict) else getattr(state2, "status", None)
-                moves_str2 = state2.get("moves", "") if isinstance(state2, dict) else getattr(state2, "moves", "")
+                inner2 = self._attr(state2, "status")
+                moves_str2 = self._attr(state2, "moves", "")
                 moves = moves_str2.split()
                 if len(moves) > self._move_count:
                     self._move_count = len(moves)
@@ -160,8 +164,8 @@ class LichessSession:
                 self._log(f"等待gameState但收到: {stype2}", "error")
 
     def _resolve_color_from_players(self, state):
-        white = state.get("white") if isinstance(state, dict) else getattr(state, "white", None)
-        black = state.get("black") if isinstance(state, dict) else getattr(state, "black", None)
+        white = self._attr(state, "white")
+        black = self._attr(state, "black")
         if not white or not black:
             return
         white_is_bot = self._is_bot(white)
@@ -199,9 +203,9 @@ class LichessSession:
             try:
                 while self._running:
                     state = await asyncio.wait_for(self._states.get(), timeout=60)
-                    stype = state.get("type") if isinstance(state, dict) else getattr(state, "type", None)
+                    stype = self._attr(state, "type")
                     if stype == "gameState":
-                        moves_str = state.get("moves", "") if isinstance(state, dict) else getattr(state, "moves", "")
+                        moves_str = self._attr(state, "moves", "")
                         moves = moves_str.split()
                         if len(moves) > self._move_count:
                             new_moves = moves[self._move_count:]
@@ -221,6 +225,7 @@ class LichessSession:
         raise ConnectionAbortedError("对手超时无响应")
 
     async def _restart_state_stream(self):
+        self._running = False
         self._running = True
         loop = asyncio.get_running_loop()
 

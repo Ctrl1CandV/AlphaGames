@@ -1,11 +1,11 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
 from core.database import SyncSessionFactory
 from models import ChessUser
+
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 import berserk
 
 lichess_bp = Blueprint("lichess", __name__)
-
 
 def _verify_lichess(username: str, token: str) -> tuple[bool, str]:
     try:

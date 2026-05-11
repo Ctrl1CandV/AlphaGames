@@ -1,13 +1,12 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
-from flask_login import login_required, current_user
-from werkzeug.security import generate_password_hash
-from core.database import SyncSessionFactory
 from models import User, Admin, Device, ChessUser, ChessRecord
-from sqlalchemy import func
 from web import admin_required, superadmin_required
+from core.database import SyncSessionFactory
+
+from flask import Blueprint, render_template, redirect, url_for, flash, request
+from werkzeug.security import generate_password_hash
+from sqlalchemy import func
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
-
 
 @admin_bp.route("/")
 @admin_required

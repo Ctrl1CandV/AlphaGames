@@ -136,9 +136,7 @@ class VoiceService:
     def _hmac_sha256(key, msg):
         return hmac.new(key.encode(), msg.encode(), hashlib.sha256).digest()
 
-    def _build_xunfei_stt_url(self):
-        host = "ws-api.xfyun.cn"
-        path = "/v2/iat"
+    def _build_xunfei_url(self, host, path, base_url):
         date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         signature_origin = f"host: {host}\ndate: {date}\nGET {path} HTTP/1.1"
         signature_sha = self._hmac_sha256(Config.XUNFEI_API_SECRET, signature_origin)
@@ -153,29 +151,10 @@ class VoiceService:
             "date": date,
             "host": host,
         }
-        return f"{Config.XUNFEI_STT_URL}?{urlencode(params)}"
-
-    def _build_xunfei_llm_url(self):
-        host = "spark-api.xf-yun.com"
-        path = "/v1.1/chat"
-        date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-        signature_origin = f"host: {host}\ndate: {date}\nGET {path} HTTP/1.1"
-        signature_sha = self._hmac_sha256(Config.XUNFEI_API_SECRET, signature_origin)
-        signature = base64.b64encode(signature_sha).decode()
-        authorization_origin = (
-            f'api_key="{Config.XUNFEI_API_KEY}", algorithm="hmac-sha256", '
-            f'headers="host date request-line", signature="{signature}"'
-        )
-        authorization = base64.b64encode(authorization_origin.encode()).decode()
-        params = {
-            "authorization": authorization,
-            "date": date,
-            "host": host,
-        }
-        return f"{Config.XUNFEI_LLM_URL}?{urlencode(params)}"
+        return f"{base_url}?{urlencode(params)}"
 
     async def speech_to_text(self, audio_path):
-        url = self._build_xunfei_stt_url()
+        url = self._build_xunfei_url("ws-api.xfyun.cn", "/v2/iat", Config.XUNFEI_STT_URL)
         frame = {
             "common": {"app_id": Config.XUNFEI_APPID},
             "business": {
@@ -255,7 +234,7 @@ class VoiceService:
         return "chat"
 
     async def ai_chat(self, text):
-        url = self._build_xunfei_llm_url()
+        url = self._build_xunfei_url("spark-api.xf-yun.com", "/v1.1/chat", Config.XUNFEI_LLM_URL)
         request = {
             "header": {"app_id": Config.XUNFEI_LLM_APPID, "uid": "alpha_user"},
             "parameter": {

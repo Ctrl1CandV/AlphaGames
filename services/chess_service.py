@@ -222,11 +222,11 @@ class ChessService(BaseSession):
 
             if key == EnumKeyInfo.ManVsRemoteMachine.value:
                 self._game_config = await self._db.get_game_config(self.user_name)
-                await self._handle_lichess_ai_mode(key)
+                await self._start_lichess(key, is_ai=True)
                 return
             if key == EnumKeyInfo.ManVsRemoteMan.value:
                 self._game_config = await self._db.get_game_config(self.user_name)
-                await self._handle_lichess_mode(key)
+                await self._start_lichess(key, is_ai=False)
                 return
 
             self._game_config = await self._db.get_game_config(self.user_name)
@@ -371,20 +371,26 @@ class ChessService(BaseSession):
             intent = self._voice_service.parse_intent(text)
 
             if intent == "start_game_ai":
+                if self._state != "WAIT_GAME_MODE":
+                    self._log(f"非等待模式忽略语音指令, state={self._state}")
+                    return
                 self._log("语音指令：开始人机对战")
                 await self.send_data(
                     EnumCommandCode.AudioFile.value,
                     bytes([EnumCommandCode.OkStatusCode.value]),
                 )
-                await self._handle_lichess_ai_mode(EnumKeyInfo.ManVsRemoteMachine.value)
+                await self._start_lichess(EnumKeyInfo.ManVsRemoteMachine.value, is_ai=True)
 
             elif intent == "start_game_human":
+                if self._state != "WAIT_GAME_MODE":
+                    self._log(f"非等待模式忽略语音指令, state={self._state}")
+                    return
                 self._log("语音指令：开始人人对战")
                 await self.send_data(
                     EnumCommandCode.AudioFile.value,
                     bytes([EnumCommandCode.OkStatusCode.value]),
                 )
-                await self._handle_lichess_mode(EnumKeyInfo.ManVsRemoteMan.value)
+                await self._start_lichess(EnumKeyInfo.ManVsRemoteMan.value, is_ai=False)
 
             elif intent == "query_opening":
                 moves = self.board.move_stack()
@@ -449,62 +455,50 @@ class ChessService(BaseSession):
             await asyncio.sleep(0.02)
         self._log("音频流发送完毕")
 
-    async def _handle_lichess_mode(self, mode_key):
+    async def _start_lichess(self, mode_key, is_ai):
         if not self.user_id:
-            self._log("人人对战需要绑定用户")
+            self._log("Lichess对战需要绑定用户")
             await self._send_open_fail()
             return
-
         bind = await self._db.get_bind_info(self.user_id, "lichess")
         if not bind.get("token"):
             self._log("未绑定Lichess账号")
             await self._send_open_fail()
             return
-
         self._game_mode = "lichess"
-        battle_bytes = bytes([mode_key, EnumCommandCode.OkStatusCode.value])
-        await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
+        await self.send_data(
+            EnumCommandCode.EnableKey.value,
+            bytes([mode_key, EnumCommandCode.OkStatusCode.value]),
+        )
         self._state = "LICHESS_SEEKING"
-        asyncio.create_task(self._lichess_play(bind["token"]))
+        asyncio.create_task(self._lichess_game_loop(bind["token"], is_ai))
 
-    async def _handle_lichess_ai_mode(self, mode_key):
-        if not self.user_id:
-            self._log("远程人机需要绑定用户")
-            await self._send_open_fail()
-            return
-
-        bind = await self._db.get_bind_info(self.user_id, "lichess")
-        if not bind.get("token"):
-            self._log("未绑定Lichess账号")
-            await self._send_open_fail()
-            return
-
-        self._game_mode = "lichess"
-        battle_bytes = bytes([mode_key, EnumCommandCode.OkStatusCode.value])
-        await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
-        self._state = "LICHESS_SEEKING"
-        asyncio.create_task(self._lichess_ai_play(bind["token"]))
-
-    async def _lichess_ai_play(self, token):
+    async def _lichess_game_loop(self, token, is_ai):
         cfg = self._game_config
         try:
             self._lichess = LichessSession(token, logger=self.logger)
-            await self._lichess.challenge_ai(
-                level=cfg.get("aiLevel", 3),
-                time_min=cfg.get("time", Config.LICHESS_SEEK_TIME),
-                increment_sec=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
-                color=cfg.get("engineColor", "random"),
-            )
+            if is_ai:
+                await self._lichess.challenge_ai(
+                    level=cfg.get("aiLevel", 3),
+                    time_min=cfg.get("time", Config.LICHESS_SEEK_TIME),
+                    increment_sec=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
+                    color=cfg.get("engineColor", "random"),
+                )
+            else:
+                await self._lichess.seek_until_found(
+                    time=Config.LICHESS_SEEK_TIME,
+                    increment=Config.LICHESS_SEEK_INCREMENT,
+                )
             await self._lichess.start_game_stream()
-
             my_color = self._lichess.my_color
             self.chess_board_camp = (my_color == "white")
-            self._log(f"Lichess AI开局成功 阵营={'白' if self.chess_board_camp else '黑'}")
-
+            label = "AI" if is_ai else ""
+            self._log(f"Lichess{label}开局成功 阵营={'白' if self.chess_board_camp else '黑'}")
             await self._send_opening_data()
             self._state = "WAIT_OPENING"
         except Exception as e:
-            self._log(f"Lichess AI开局失败: {e}", "error")
+            label = "AI" if is_ai else ""
+            self._log(f"Lichess{label}开局失败: {e}", "error")
             await self._on_game_ended()
 
     async def _send_open_fail(self):
@@ -513,25 +507,6 @@ class ChessService(BaseSession):
             bytes([EnumKeyInfo.EndChess.value]),
         )
         self._state = "WAIT_GAME_MODE"
-
-    async def _lichess_play(self, token):
-        try:
-            self._lichess = LichessSession(token, logger=self.logger)
-            await self._lichess.seek_until_found(
-                time=Config.LICHESS_SEEK_TIME,
-                increment=Config.LICHESS_SEEK_INCREMENT,
-            )
-            await self._lichess.start_game_stream()
-
-            my_color = self._lichess.my_color
-            self.chess_board_camp = (my_color == "white")
-            self._log(f"Lichess匹配成功 阵营={'白' if self.chess_board_camp else '黑'}")
-
-            await self._send_opening_data()
-            self._state = "WAIT_OPENING"
-        except Exception as e:
-            self._log(f"Lichess匹配失败: {e}", "error")
-            await self._on_game_ended()
 
     async def _lichess_send_and_wait(self, uci):
         try:

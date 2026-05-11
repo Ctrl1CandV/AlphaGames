@@ -8,18 +8,15 @@ class MessageProto:
     """
     HEAD_LENGTH = 4
 
-    def __init__(self, buffer=None, head=None, command=None, message_data=None):
+    def __init__(self, buffer):
         self.Head = 0
         self.Command = 0
         self.DataLength = 0
-        self.MessageData = bytearray()  # 实际数据
-        self.MoreData = bytearray()     # 更多补充数据
+        self.MessageData = bytearray()
+        self.MoreData = bytearray()
 
-        # 缓冲区内有信息则接受并解码，没有信息则使用给出的信息进行编码
         if buffer is not None:
             self._decode(buffer)
-        elif head is not None and command is not None:
-            self._encode_new(head, command, message_data)
 
     def _decode(self, buffer):
         """ 解码函数 """
@@ -34,25 +31,6 @@ class MessageProto:
             self.MessageData = buffer[self.HEAD_LENGTH : self.DataLength + self.HEAD_LENGTH]
         if len(buffer) - self.HEAD_LENGTH - self.DataLength > 0:
             self.MoreData = buffer[self.DataLength + self.HEAD_LENGTH :]
-
-    def _encode_new(self, head, command, message_data):
-        """ 编码函数 """
-        if message_data is None:
-            message_data = bytearray()
-        self.Head = head
-        self.Command = command
-        self.MessageData = message_data
-        self.DataLength = len(message_data) + self.HEAD_LENGTH
-
-    def get_bytes(self):
-        """ 将消息包转换为字节数据，用于网络传输 """
-        length_bytes = self.DataLength.to_bytes(2, byteorder="little")
-        result = bytearray()
-        result.append(self.Head)
-        result.append(self.Command)
-        result.extend(length_bytes)
-        result.extend(self.MessageData)
-        return bytes(result)
 
     def get_message(self):
         return bytes(self.MessageData)
@@ -70,12 +48,12 @@ class MessageProto:
 
     @staticmethod
     def encode(command, message_data):
-        """ 静态方法，便捷的编码方式，使用固定的信息头 """
         if message_data is None:
             message_data = bytearray()
-        msg = MessageProto(
-            head=EnumCommonCommandCode.Head.value,
-            command=command,
-            message_data=message_data,
-        )
-        return msg.get_bytes()
+        data_length = len(message_data) + MessageProto.HEAD_LENGTH
+        result = bytearray()
+        result.append(EnumCommonCommandCode.Head.value)
+        result.append(command)
+        result.extend(data_length.to_bytes(2, byteorder="little"))
+        result.extend(message_data)
+        return bytes(result)

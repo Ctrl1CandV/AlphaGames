@@ -1,10 +1,10 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
 from core.database import SyncSessionFactory
 from models import Device, ChessUploadMode
 
-device_bp = Blueprint("device", __name__)
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 
+device_bp = Blueprint("device", __name__)
 
 @device_bp.route("/device/bind", methods=["GET", "POST"])
 @login_required

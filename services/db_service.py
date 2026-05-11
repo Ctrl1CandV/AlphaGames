@@ -13,6 +13,7 @@ class DbService:
             result = await session.execute(
                 select(Device).where(Device.sn == sn).order_by(Device.updateTime.desc())
             )
+            # 挑选绑定时间最新的用户
             device = result.scalars().first()
             if not device or not device.userName:
                 return None, None
