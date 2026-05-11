@@ -6,6 +6,7 @@ import logging
 
 class LichessSession:
     def __init__(self, token, logger=None):
+        self._token = token
         self._client = berserk.Client(berserk.TokenSession(token))
         self._logger = logger or logging.getLogger("AlphaGames")
         self._events = asyncio.Queue()
@@ -34,7 +35,7 @@ class LichessSession:
     async def _check_and_abort_ongoing(self):
         from requests import get, post
 
-        token = self._client.session.token
+        token = self._token
         loop = asyncio.get_running_loop()
 
         def _check():
@@ -189,9 +190,24 @@ class LichessSession:
 
     async def make_move(self, uci):
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: self._client.board.make_move(self._game_id, uci))
-        self._move_count += 1
-        self._log(f"走棋: {uci}")
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                await loop.run_in_executor(
+                    None, lambda: self._client.board.make_move(self._game_id, uci)
+                )
+                self._move_count += 1
+                if attempt > 1:
+                    self._log(f"走棋成功(第{attempt}次): {uci}")
+                else:
+                    self._log(f"走棋: {uci}")
+                return
+            except Exception as e:
+                last_error = e
+                self._log(f"走棋网络异常(第{attempt}/3次): {e}", "error" if attempt == 3 else "info")
+                if attempt < 3:
+                    await asyncio.sleep(2)
+        raise last_error
 
     async def resign(self):
         loop = asyncio.get_running_loop()

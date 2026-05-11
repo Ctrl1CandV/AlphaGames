@@ -43,8 +43,9 @@ class ChessService(BaseSession):
         self._voice_buffer = bytearray()                    # 语音数据缓冲区
         self._voice_total = 0                               # 语音总长度
         self._voice_service = VoiceService(logger=self.logger)
-        self._auto_moving = False                           # 棋盘自动行棋中
-        self._game_config = {}                              # 对局配置缓存
+        self._auto_moving = False
+        self._game_config = {}
+        self._last_sent_uci = None
 
     async def handle(self):
         self._log("会话开始")
@@ -498,7 +499,9 @@ class ChessService(BaseSession):
             self._state = "WAIT_OPENING"
         except Exception as e:
             label = "AI" if is_ai else ""
-            self._log(f"Lichess{label}开局失败: {e}", "error")
+            self._log(f"Lichess{label}开局失败: {type(e).__name__}: {e}", "error")
+            import traceback
+            self._log(traceback.format_exc(), "error")
             await self._on_game_ended()
 
     async def _send_open_fail(self):
@@ -512,7 +515,7 @@ class ChessService(BaseSession):
         try:
             await self._lichess.make_move(uci)
         except Exception as e:
-            self._log(f"Lichess走棋失败: {e}", "error")
+            self._log(f"[网络] Lichess走棋失败(已重试3次): {type(e).__name__}: {e}", "error")
             await self._on_game_ended()
             return
 
@@ -526,7 +529,7 @@ class ChessService(BaseSession):
         try:
             opp_uci = await self._lichess.wait_for_opponent_move()
         except Exception as e:
-            self._log(f"等待对手走棋失败: {e}", "error")
+            self._log(f"[网络] 等待对手走棋失败(已重试3次): {e}", "error")
             await self._on_game_ended()
             return
 
@@ -576,7 +579,7 @@ class ChessService(BaseSession):
         self._log(f"棋盘走棋: {uci}")
 
         if not self.board.is_legal(uci):
-            self._log(f"非法行棋: {uci}")
+            self._log(f"非法行棋: {uci}  FEN={self.board.fen()}")
             await self.send_data(
                 EnumCommandCode.MoveVerify.value,
                 bytes([EnumCommandCode.MoveFail.value]),
