@@ -15,6 +15,7 @@ from services.lichess_service import LichessSession
 from services.voice_service import VoiceService
 from core.engine import get_stockfish_pool
 from services.db_service import DbService
+from utils.logger import setup_sn_logger
 from core.board import ChessBoard
 from config import Config
 
@@ -72,8 +73,10 @@ class ChessService(BaseSession):
                         break
                     
                     # 解码信息获取命令及具体指令，并实行分发处理命令
+                    raw = dynamic_buffer[:data_length]
                     mp = MessageProto(dynamic_buffer)
                     dynamic_buffer = mp.MoreData
+                    self._log(f"接收 命令=0x{mp.Command:02X} 数据={self._hex_str(raw)}")
                     try:
                         await self._dispatch(mp.Command, mp.get_message())
                     except Exception as e:
@@ -140,6 +143,7 @@ class ChessService(BaseSession):
 
     async def _handle_sn_code(self, message):
         self.sn_code = message.decode("utf-8").replace("\x00", "").strip()
+        self.logger = setup_sn_logger(self.sn_code)
         self._log(f"收到SN码: {self.sn_code}")
 
         try:

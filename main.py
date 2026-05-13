@@ -19,8 +19,8 @@ def _start_flask():
 
 
 async def main():
-    tcp_logger = setup_logger("AlphaGames.tcp", "tcp")
-    web_logger = setup_logger("AlphaGames.web", "web")
+    tcp_logger = setup_logger("AlphaGames.tcp", "tcp", sub_dir="tcp")
+    web_logger = setup_logger("AlphaGames.web", "web", sub_dir="web")
 
     tcp_logger.info("AlphaGames 中台启动中...")
 
