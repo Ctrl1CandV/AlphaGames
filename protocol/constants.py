@@ -107,4 +107,4 @@ class EnumKeyInfo(Enum):
     ManVsRemoteMan = 0x15
     ManVsFaceMan = 0x16
 
-TAG_HEADER_LENGTH = 38
+TAG_HEADER_LENGTH = 39

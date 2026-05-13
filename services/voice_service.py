@@ -223,14 +223,14 @@ class VoiceService:
         is_query_open = any(keyword in t for keyword in ("当前棋盘开局", "什么开局", "开局信息", "查询开局", "opening", "find opening"))
         is_query_move = any(keyword in t for keyword in ("当前局面", "局面", "局面信息", "现在局面", "board position", "position"))
 
-        if is_start:
-            if is_human:
-                return "start_game_human"
-            return "start_game_ai"
         if is_query_open:
             return "query_opening"
         if is_query_move:
             return "query_moves"
+        if is_start:
+            if is_human:
+                return "start_game_human"
+            return "start_game_ai"
         return "chat"
 
     async def ai_chat(self, text):
