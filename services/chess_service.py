@@ -19,6 +19,8 @@ from utils.logger import setup_sn_logger
 from core.board import ChessBoard
 from config import Config
 
+_ELO_TO_LICHESS   = lambda e: max(1, min(8, round((e - 800) / 262.5) + 1))
+
 from datetime import datetime, timezone
 import traceback
 import tempfile
@@ -484,7 +486,7 @@ class ChessService(BaseSession):
             self._lichess = LichessSession(token, logger=self.logger)
             if is_ai:
                 await self._lichess.challenge_ai(
-                    level=cfg.get("aiLevel", 3),
+                    level=max(1, min(8, round((cfg.get("aiLevel", 1500) - 800) / 262.5) + 1)),
                     time_min=cfg.get("time", Config.LICHESS_SEEK_TIME),
                     increment_sec=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
                     color=cfg.get("engineColor", "random"),
@@ -608,8 +610,8 @@ class ChessService(BaseSession):
 
     async def _engine_move(self):
         engine = None
-        ai_level = self._game_config.get("aiLevel", 3)
-        stockfish_level = min(20, max(0, ai_level * 2))
+        elo = self._game_config.get("aiLevel", 1500)
+        stockfish_level = max(0, min(20, round((elo - 800) / 105)))
         for attempt in (1, 2):
             engine = await self._pool.acquire()
             engine.set_skill_level(stockfish_level)

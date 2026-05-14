@@ -38,15 +38,12 @@
             </div>
 
             <div class="form-group">
-                <label>AI 难度</label>
+                <label>AI 难度 (Elo)</label>
                 <div class="flex-between mt-2">
-                    <input type="range" name="aiLevel" min="1" max="8" value="{{ config.aiLevel if config else 3 }}" class="flex-1" oninput="this.nextElementSibling.textContent = this.value">
-                    <span class="badge badge-primary" style="min-width: 1.5rem; text-align: center; margin-left: 0.75rem;">{{ config.aiLevel if config else 3 }}</span>
+                    <input type="range" name="aiLevel" id="aiLevel" min="800" max="2900" step="100" value="{{ config.aiLevel if config else 1500 }}" class="flex-1" oninput="updateElo(this.value)">
+                    <span class="badge badge-primary" id="eloVal" style="min-width: 2.5rem; text-align: center; margin-left: 0.75rem;">{{ config.aiLevel if config else 1500 }}</span>
                 </div>
-                <div class="flex-between mt-1">
-                    <span class="text-muted" style="font-size: 0.7rem;">入门</span>
-                    <span class="text-muted" style="font-size: 0.7rem;">大师</span>
-                </div>
+                <div id="eloDesc" class="info-box mt-2" style="text-align: center; padding: 4px 12px;"></div>
             </div>
 
             <div class="form-group">
@@ -66,4 +63,17 @@
         </form>
     </div>
 </div>
+
+<script>
+var _lv = [{lo:800,hi:999,l:"入门"},{lo:1000,hi:1300,l:"初级"},{lo:1400,hi:1700,l:"中级"},{lo:1800,hi:2000,l:"进阶"},{lo:2100,hi:2300,l:"高级"},{lo:2400,hi:2600,l:"专家"},{lo:2700,hi:2800,l:"国家大师"},{lo:2900,hi:9999,l:"特级大师"}];
+function updateElo(v) {
+    document.getElementById('eloVal').textContent = v;
+    var d = '';
+    for (var i = 0; i < _lv.length; i++) {
+        if (v >= _lv[i].lo && v <= _lv[i].hi) { d = _lv[i].l; break; }
+    }
+    document.getElementById('eloDesc').textContent = d;
+}
+updateElo(document.getElementById('aiLevel').value);
+</script>
 {% endblock %}

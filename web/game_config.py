@@ -18,8 +18,8 @@ def config():
             engine_color = request.form.get("engineColor", "random")
             if engine_color not in ("white", "black", "random"):
                 engine_color = "random"
-            ai_level = int(request.form.get("aiLevel", "3"))
-            ai_level = max(1, min(8, ai_level))
+            ai_level = int(request.form.get("aiLevel", "1500"))
+            ai_level = max(800, min(2900, ai_level))
             time_val = int(request.form.get("time", "10"))
             time_val = max(1, min(180, time_val))
             increment = int(request.form.get("increment", "5"))

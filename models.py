@@ -94,7 +94,7 @@ class GameConfig(Base):
     """
     对局配置：用户偏好设置，适用于本地AI、Lichess AI及人人对战
     engineColor: white/black/random
-    aiLevel: AI难度 Lichess 1-8，Stockfish按比例映射
+    aiLevel: AI难度 Elo分 800-2900，映射到 Stockfish Skill 0-20 / Lichess AI 1-8
     time: 对局时间(分钟)
     increment: 每步加秒
     """
@@ -103,7 +103,7 @@ class GameConfig(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     userName: Mapped[str | None] = mapped_column(String(255), index=True, unique=True)
     engineColor: Mapped[str] = mapped_column(String(16), default="random")
-    aiLevel: Mapped[int] = mapped_column(Integer, default=3)
+    aiLevel: Mapped[int] = mapped_column(Integer, default=1500)
     time: Mapped[int] = mapped_column(Integer, default=10)
     increment: Mapped[int] = mapped_column(Integer, default=5)
     createTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc))
@@ -111,7 +111,7 @@ class GameConfig(Base):
 
     __table_args__ = (
         CheckConstraint("engineColor IN ('white', 'black', 'random')", name="check_engine_color"),
-        CheckConstraint("aiLevel BETWEEN 1 AND 8", name="check_ai_level"),
+        CheckConstraint("aiLevel BETWEEN 800 AND 2900", name="check_ai_level"),
     )
 
     def __repr__(self):

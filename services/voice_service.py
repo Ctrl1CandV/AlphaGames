@@ -200,8 +200,7 @@ class VoiceService:
                         if code != 0:
                             self.logger.error(f"讯飞STT错误: {msg.get('message', '')}")
                             break
-                        data = msg.get("data", {})
-                        result_data = data.get("result", {})
+                        data, result_data = msg.get("data", {}), data.get("result", {})
                         ws_data = result_data.get("ws", [])
                         for item in ws_data:
                             cw = item.get("cw", [])
@@ -216,6 +215,7 @@ class VoiceService:
         return result_text.strip()
 
     def parse_intent(self, text):
+        """ 意图匹配 """
         t = text.lower()
 
         is_start = any(keyword in t for keyword in ("开始", "start", "game", "开局"))
