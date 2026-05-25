@@ -17,6 +17,7 @@ class LichessSession:
         self._move_count = 0
         self._event_thread = None
         self._state_thread = None
+        self._game_ended = asyncio.Event()
 
     @property
     def my_color(self):
@@ -25,6 +26,14 @@ class LichessSession:
     @property
     def game_id(self):
         return self._game_id
+
+    @property
+    def game_ended(self):
+        return self._game_ended.is_set()
+
+    async def wait_game_end(self):
+        """阻塞等待对局自然结束"""
+        await self._game_ended.wait()
 
     @staticmethod
     def _attr(obj, key, default=None):
@@ -143,6 +152,11 @@ class LichessSession:
                 for state in self._client.board.stream_game_state(self._game_id):
                     if not self._running:
                         break
+                    stype = self._attr(state, "type")
+                    if stype == "gameState":
+                        status = self._attr(state, "status", "started")
+                        if status != "started":
+                            self._game_ended.set()
                     asyncio.run_coroutine_threadsafe(self._states.put(state), loop)
             except Exception as e:
                 self._log(f"对局状态流异常: {e}", "error")
@@ -234,6 +248,11 @@ class LichessSession:
                     state = await asyncio.wait_for(self._states.get(), timeout=60)
                     stype = self._attr(state, "type")
                     if stype == "gameState":
+                        status = self._attr(state, "status", "started")
+                        if status != "started":
+                            self._game_ended.set()
+                            self._log(f"对局结束 ({status})")
+                            raise ConnectionAbortedError(f"gameFinish: {status}")
                         moves_str = self._attr(state, "moves", "")
                         moves = moves_str.split()
                         if len(moves) > self._move_count:
@@ -243,6 +262,7 @@ class LichessSession:
                             self._log(f"对手走棋: {opp_uci}")
                             return opp_uci
                     elif stype == "gameFinish":
+                        self._game_ended.set()
                         self._log("对局结束")
                         raise ConnectionAbortedError("gameFinish")
             except asyncio.TimeoutError:
@@ -263,6 +283,11 @@ class LichessSession:
                 for state in self._client.board.stream_game_state(self._game_id):
                     if not self._running:
                         break
+                    stype = self._attr(state, "type")
+                    if stype == "gameState":
+                        status = self._attr(state, "status", "started")
+                        if status != "started":
+                            self._game_ended.set()
                     asyncio.run_coroutine_threadsafe(self._states.put(state), loop)
             except Exception as e:
                 self._log(f"状态流重连异常: {e}", "error")
@@ -272,6 +297,7 @@ class LichessSession:
 
     def shutdown(self):
         self._running = False
+        self._game_ended.set()
 
     def _log(self, msg, level="info"):
         getattr(self._logger, level)(f"[Lichess] {msg}")

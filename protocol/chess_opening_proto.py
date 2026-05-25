@@ -42,8 +42,8 @@ def build_opening_data():
     ])
 
     return (
-        head + chess_type + undefined_area
-        + row_number + column_number + data_length
-        + row1 + row2 + row3 + row4 + row5 + row6 + row7 + row8
+        head + data_length + undefined_area
+        + chess_type + row_number + column_number
         + end
+        + row1 + row2 + row3 + row4 + row5 + row6 + row7 + row8
     )

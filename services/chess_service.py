@@ -308,8 +308,11 @@ class ChessService(BaseSession):
 
             self._state = "PLAYING"
 
-            start_bytes = bytes([EnumKeyInfo.StartChess.value, EnumCommandCode.OkStatusCode.value])
+            start_bytes = bytes([EnumKeyInfo.StartChess.value])
             await self.send_data(EnumCommandCode.EnableKey.value, start_bytes)
+
+            if self._game_mode == "lichess" and self._lichess:
+                asyncio.create_task(self._lichess_monitor_end())
 
             if not self.chess_board_camp:
                 if self._game_mode == "lichess":
@@ -552,6 +555,13 @@ class ChessService(BaseSession):
         if self.board.is_game_over():
             await self._on_game_ended()
 
+    async def _lichess_monitor_end(self):
+        """后台监控 Lichess 对局结束事件"""
+        await self._lichess.wait_game_end()
+        if self._state == "PLAYING":
+            self._log("Lichess 对局结束")
+            await self._on_game_ended()
+
     async def _send_opening_data(self):
         data = build_opening_data()
         await self.send_data(EnumCommandCode.Opening.value, data)
@@ -649,6 +659,8 @@ class ChessService(BaseSession):
             await self._on_game_ended()
 
     async def _on_game_ended(self, is_surrender=False):
+        if self._state == "WAIT_GAME_MODE":
+            return
         result = self.board.result()
         reason = "投降" if is_surrender else f"终局({result})"
         self._log(f"游戏结束: {reason}")
