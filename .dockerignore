@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+README.md
+CONTEXT.md
+logs/
+client/
+.env
+*.exe
+stockfish-ubuntu-x86-64-avx2
+.venv/
+venv/
+env/
+.vscode/
+.idea/

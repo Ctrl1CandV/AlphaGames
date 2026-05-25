@@ -1,0 +1,50 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: alpha-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mysql}
+      MYSQL_DATABASE: ${MYSQL_DB:-alpha_platform}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: alpha-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+    volumes:
+      - ./stockfish-ubuntu-x86-64-avx2:/opt/stockfish-ubuntu-x86-64-avx2:ro
+      - ./logs:/app/logs
+    environment:
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mysql}
+      MYSQL_DB: ${MYSQL_DB:-alpha_platform}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      STOCKFISH_PATH: /opt/stockfish-ubuntu-x86-64-avx2
+      SECRET_KEY: ${SECRET_KEY:-alpha-games-secret-key}
+      FLASK_HOST: 0.0.0.0
+      XUNFEI_APPID: ${XUNFEI_APPID:-914a5257}
+      XUNFEI_API_KEY: ${XUNFEI_API_KEY:-dbe4766077d66c698524cd1314cf2c3f}
+      XUNFEI_API_SECRET: ${XUNFEI_API_SECRET:-YWE4NWRjMzg5OWRiZWU4ZWNjMmEwMTlh}
+      XUNFEI_STT_URL: ${XUNFEI_STT_URL:-wss://ws-api.xfyun.cn/v2/iat}
+      XUNFEI_LLM_APPID: ${XUNFEI_LLM_APPID:-914a5257}
+      XUNFEI_LLM_URL: ${XUNFEI_LLM_URL:-wss://spark-api.xf-yun.com/v1.1/chat}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-sk_e638cbf8d1ca252e249fe97ea881e0653a84e3219f22ddeb}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-sIirIlcPrAxbvQM9Icwj}
+      ELEVENLABS_TTS_URL: ${ELEVENLABS_TTS_URL:-https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream}
+
+volumes:
+  mysql_data:
