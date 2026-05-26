@@ -30,6 +30,8 @@ def config():
                 cfg.aiLevel = ai_level
                 cfg.time = time_val
                 cfg.increment = increment
+                cfg.pvpMode = request.form.get("pvpMode", "random")
+                cfg.pvpOpponent = request.form.get("pvpOpponent", "").strip() or None
             else:
                 session.add(GameConfig(
                     userName=current_user.username,
@@ -37,6 +39,8 @@ def config():
                     aiLevel=ai_level,
                     time=time_val,
                     increment=increment,
+                    pvpMode=request.form.get("pvpMode", "random"),
+                    pvpOpponent=request.form.get("pvpOpponent", "").strip() or None,
                 ))
             session.commit()
             flash("对局配置已保存", "success")

@@ -97,6 +97,8 @@ class GameConfig(Base):
     aiLevel: AI难度 Elo分 800-2900，映射到 Stockfish Skill 0-20 / Lichess AI 1-8
     time: 对局时间(分钟)
     increment: 每步加秒
+    pvpMode: 人人对战模式 random(随机) / designated(指定)
+    pvpOpponent: 指定对手的 Lichess 用户名
     """
     __tablename__ = "gameconfig"
 
@@ -106,12 +108,15 @@ class GameConfig(Base):
     aiLevel: Mapped[int] = mapped_column(Integer, default=1500)
     time: Mapped[int] = mapped_column(Integer, default=10)
     increment: Mapped[int] = mapped_column(Integer, default=5)
+    pvpMode: Mapped[str] = mapped_column(String(16), default="random")
+    pvpOpponent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     createTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc))
     updateTime: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
     __table_args__ = (
         CheckConstraint("engineColor IN ('white', 'black', 'random')", name="check_engine_color"),
         CheckConstraint("aiLevel BETWEEN 800 AND 2900", name="check_ai_level"),
+        CheckConstraint("pvpMode IN ('random', 'designated')", name="check_pvp_mode"),
     )
 
     def __repr__(self):

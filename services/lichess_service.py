@@ -112,6 +112,68 @@ class LichessSession:
                 self._log(f"匹配成功 game_id={self._game_id} color={self._my_color}")
                 return
 
+    async def challenge_user(self, username, time=10, increment=5, color="random"):
+        """向指定 Lichess 用户发起对战，等待对方接受"""
+        await self._check_and_abort_ongoing()
+        self._running = True
+        loop = asyncio.get_running_loop()
+
+        def _stream():
+            try:
+                for event in self._client.board.stream_incoming_events():
+                    if not self._running:
+                        break
+                    etype = self._attr(event, "type")
+                    if etype in ("gameStart", "gameFinish", "challenge"):
+                        asyncio.run_coroutine_threadsafe(self._events.put(event), loop)
+            except Exception as e:
+                self._log(f"事件流异常: {e}", "error")
+
+        self._event_thread = threading.Thread(target=_stream, daemon=True)
+        self._event_thread.start()
+
+        def _challenge():
+            return self._client.challenges.create(
+                username=username,
+                rated=False,
+                clock_limit=time * 60,
+                clock_increment=increment,
+                color=color,
+            )
+
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                await loop.run_in_executor(None, _challenge)
+                self._log(f"已向 {username} 发起挑战，等待对方接受...")
+                break
+            except Exception as e:
+                last_error = e
+                error_msg = str(e)
+                if "404" in error_msg or "not found" in error_msg.lower():
+                    raise RuntimeError(f"Lichess 用户不存在: {username}")
+                if attempt == 3:
+                    raise last_error
+                await asyncio.sleep(2)
+
+        try:
+            event = await asyncio.wait_for(self._events.get(), timeout=120)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"挑战 {username} 超时，对方未响应")
+
+        etype = self._attr(event, "type")
+        if etype != "gameStart":
+            if etype == "challenge":
+                decline = self._attr(event, "challenge", {})
+                reason = self._attr(decline, "declineReason", "未知")
+                raise RuntimeError(f"挑战被拒绝: {reason}")
+            raise RuntimeError(f"未预期的挑战响应: {etype}")
+
+        game = self._attr(event, "game", {})
+        self._game_id = self._attr(game, "id")
+        self._my_color = self._attr(game, "color")
+        self._log(f"对手已接受 game_id={self._game_id} color={self._my_color}")
+
     async def challenge_ai(self, level=3, time_min=10, increment_sec=5, color="random"):
         await self._check_and_abort_ongoing()
         self._running = True

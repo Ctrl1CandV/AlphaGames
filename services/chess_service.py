@@ -494,6 +494,13 @@ class ChessService(BaseSession):
                     increment_sec=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
                     color=cfg.get("engineColor", "random"),
                 )
+            elif cfg.get("pvpMode") == "designated" and cfg.get("pvpOpponent"):
+                await self._lichess.challenge_user(
+                    username=cfg["pvpOpponent"],
+                    time=cfg.get("time", Config.LICHESS_SEEK_TIME),
+                    increment=cfg.get("increment", Config.LICHESS_SEEK_INCREMENT),
+                    color=cfg.get("engineColor", "random"),
+                )
             else:
                 await self._lichess.seek_until_found(
                     time=Config.LICHESS_SEEK_TIME,

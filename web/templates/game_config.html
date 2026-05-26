@@ -56,6 +56,23 @@
                 <input type="number" name="increment" min="0" max="60" value="{{ config.increment if config else 5 }}">
             </div>
 
+            <div class="form-group">
+                <label>人人对战模式</label>
+                <div class="flex-row gap-6 mt-2">
+                    <label class="radio-card flex-1">
+                        <input type="radio" name="pvpMode" value="random" {{ 'checked' if not config or config.pvpMode == 'random' else '' }} onclick="togglePvp()">
+                        <span class="radio-label">随机匹配</span>
+                    </label>
+                    <label class="radio-card flex-1">
+                        <input type="radio" name="pvpMode" value="designated" {{ 'checked' if config and config.pvpMode == 'designated' else '' }} onclick="togglePvp()">
+                        <span class="radio-label">指定对手</span>
+                    </label>
+                </div>
+                <div id="pvpOpponentWrap" style="display:{{ 'block' if config and config.pvpMode == 'designated' else 'none' }}; margin-top: 0.75rem;">
+                    <input type="text" name="pvpOpponent" placeholder="Lichess 用户名" value="{{ config.pvpOpponent if config else '' }}" style="width:100%;">
+                </div>
+            </div>
+
             <div class="flex-row gap-6 mt-6">
                 <button type="submit" class="btn-primary flex-1">保存配置</button>
                 <a href="/dashboard" class="btn-outline">返回面板</a>
@@ -73,6 +90,10 @@ function updateElo(v) {
         if (v >= _lv[i].lo && v <= _lv[i].hi) { d = _lv[i].l; break; }
     }
     document.getElementById('eloDesc').textContent = d;
+}
+function togglePvp() {
+    var m = document.querySelector('input[name="pvpMode"]:checked').value;
+    document.getElementById('pvpOpponentWrap').style.display = m === 'designated' ? 'block' : 'none';
 }
 updateElo(document.getElementById('aiLevel').value);
 </script>

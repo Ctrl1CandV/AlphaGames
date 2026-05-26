@@ -76,5 +76,7 @@ class DbService:
                     "aiLevel": cfg.aiLevel,
                     "time": cfg.time,
                     "increment": cfg.increment,
+                    "pvpMode": cfg.pvpMode,
+                    "pvpOpponent": cfg.pvpOpponent,
                 }
             return {}

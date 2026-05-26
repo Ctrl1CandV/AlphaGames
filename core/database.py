@@ -42,24 +42,24 @@ async def init_db():
         # 在异步连接上同步执行建表操作
         await conn.run_sync(Base.metadata.create_all)
 
-def _migrate_elo():
-    """将 gameconfig.aiLevel 从旧 1-8 约束迁移到 800-2900"""
+def _migrate_pvp():
+    """新增 pvpMode / pvpOpponent 列"""
     from sqlalchemy import text
-    _ELO_MAP = {1: 800, 2: 1100, 3: 1500, 4: 1800, 5: 2100, 6: 2400, 7: 2700, 8: 2900}
     with SyncSessionFactory() as s:
-        try:
-            s.execute(text("ALTER TABLE gameconfig DROP CHECK check_ai_level"))
-        except Exception:
-            pass
-        for old, new in _ELO_MAP.items():
-            s.execute(text("UPDATE gameconfig SET aiLevel = :n WHERE aiLevel = :o"), {"n": new, "o": old})
-        s.execute(text("ALTER TABLE gameconfig ADD CONSTRAINT check_ai_level CHECK (aiLevel BETWEEN 800 AND 2900)"))
+        for ddl in [
+            "ALTER TABLE gameconfig ADD COLUMN pvpMode VARCHAR(16) DEFAULT 'random'",
+            "ALTER TABLE gameconfig ADD COLUMN pvpOpponent VARCHAR(255)",
+        ]:
+            try:
+                s.execute(text(ddl))
+            except Exception:
+                pass
         s.commit()
 
 def init_db_sync():
     from models import Base
     Base.metadata.create_all(_get_sync_engine())
-    # _migrate_elo()
+    _migrate_pvp()
 
 def init_default_admin():
     from werkzeug.security import generate_password_hash

@@ -121,6 +121,12 @@
                         <span class="text-muted">时间 / 加秒</span>
                         <span class="font-medium">{{ game_config.time }}m + {{ game_config.increment }}s</span>
                     </div>
+                    {% if game_config.pvpMode %}
+                    <div class="flex-between">
+                        <span class="text-muted">人人对战</span>
+                        <span class="font-medium">{{ '随机匹配' if game_config.pvpMode == 'random' else '指定: ' + (game_config.pvpOpponent or '?') }}</span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="mt-auto">
                     <a href="/game/config" class="btn-outline btn-block">修改配置</a>
