@@ -50,7 +50,7 @@ class DailyFileHandler(logging.Handler):
 def _new_logger(name):
     logger = logging.getLogger(name)
     if logger.handlers:
-        return logger, logger.handlers[0].formatter
+        return logger
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
     fmt = logging.Formatter(
@@ -61,15 +61,17 @@ def _new_logger(name):
     ch.setLevel(logging.DEBUG)
     ch.setFormatter(fmt)
     logger.addHandler(ch)
-    return logger, fmt
+    return logger
 
 
 def setup_logger(name, log_basename, sub_dir="tcp"):
     """logs/{sub_dir}/{log_basename}.log.{date}"""
-    logger, fmt = _new_logger(name)
+    logger = _new_logger(name)
+    if len(logger.handlers) > 1:
+        return logger
     fh = DailyFileHandler(sub_dir, log_basename)
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
+    fh.setFormatter(logger.handlers[0].formatter)
     logger.addHandler(fh)
     return logger
 
@@ -77,9 +79,11 @@ def setup_logger(name, log_basename, sub_dir="tcp"):
 def setup_sn_logger(sn_code):
     """logs/sn/{sn_code}.log.{date}"""
     safe = re.sub(r"[^\w\-]", "_", sn_code) if sn_code else "unknown"
-    logger, fmt = _new_logger(f"AlphaGames.sn.{safe}")
+    logger = _new_logger(f"AlphaGames.sn.{safe}")
+    if len(logger.handlers) > 1:
+        return logger
     fh = DailyFileHandler("sn", safe)
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
+    fh.setFormatter(logger.handlers[0].formatter)
     logger.addHandler(fh)
     return logger
