@@ -57,8 +57,8 @@ class StockfishEngine:
             self._engine = None
             self._log("Stockfish 已关闭")
 
-    def _log(self, msg):
-        self.logger.info(f"[Stockfish] {msg}")
+    def _log(self, msg, level="info"):
+        getattr(self.logger, level)(f"[Stockfish] {msg}")
 
 class StockfishPool:
     """
@@ -106,8 +106,8 @@ class StockfishPool:
             self._available.clear()
             self._log("引擎池已关闭")
 
-    def _log(self, msg):
-        self._logger.info(f"[StockfishPool] {msg}")
+    def _log(self, msg, level="info"):
+        getattr(self._logger, level)(f"[StockfishPool] {msg}")
 
 # 模块级单例：整个应用共享一个引擎池，避免重复创建
 _stockfish_pool = None
