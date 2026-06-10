@@ -14,7 +14,8 @@ class LichessSession:
         self._running = False
         self._game_id = None
         self._my_color = None
-        self._move_count = 0
+        self._move_count = 0                # 已落到物理棋盘上的半回合数
+        self._pending_opponent_moves = []   # gameFull中订阅前已走、待转发给棋盘的步
         self._event_thread = None
         self._state_thread = None
         self._game_ended = asyncio.Event()
@@ -237,19 +238,24 @@ class LichessSession:
         inner = self._attr(state, "state")
         moves_str = self._attr(inner, "moves", "")
         status = self._attr(inner, "status", "")
-        self._move_count = len(moves_str.split()) if moves_str else 0
-        self._log(f"gameFull color={self._my_color} status={status} moves={self._move_count}")
+        existing_moves = moves_str.split() if moves_str else []
+        """
+        gameFull是订阅时刻的棋局快照：订阅前对手已走的步只在此出现，之后不会再单独推gameState
+        此刻物理棋盘仍是初始局面，已同步步数记为0，并把快照中已有的步暂存
+        交由wait_for_opponent_move依次转发给棋盘，避免对手首步丢失导致双方互等卡死
+        """
+        self._move_count = 0
+        self._pending_opponent_moves = existing_moves
+        self._log(f"gameFull color={self._my_color} status={status} moves={len(existing_moves)}")
 
-        if status != "started":
+        if status != "started" and not existing_moves:
             state2 = await asyncio.wait_for(self._states.get(), timeout=15)
             stype2 = self._attr(state2, "type")
             if stype2 == "gameState":
                 inner2 = self._attr(state2, "status")
                 moves_str2 = self._attr(state2, "moves", "")
-                moves = moves_str2.split()
-                if len(moves) > self._move_count:
-                    self._move_count = len(moves)
-                self._log(f"gameState status={inner2} moves={self._move_count}")
+                self._pending_opponent_moves = moves_str2.split()
+                self._log(f"gameState status={inner2} moves={len(self._pending_opponent_moves)}")
             else:
                 self._log(f"等待gameState但收到: {stype2}", "error")
 
@@ -304,6 +310,13 @@ class LichessSession:
         self._log("投降")
 
     async def wait_for_opponent_move(self):
+        # 优先转发 gameFull 快照中订阅前已走、尚未同步到棋盘的步
+        if self._pending_opponent_moves:
+            opp_uci = self._pending_opponent_moves.pop(0)
+            self._move_count += 1
+            self._log(f"对手走棋(快照补发): {opp_uci}")
+            return opp_uci
+
         for retry in range(3):
             try:
                 while self._running:

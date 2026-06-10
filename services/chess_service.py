@@ -49,6 +49,7 @@ class ChessService(BaseSession):
         self._auto_moving = False
         self._game_config = {}
         self._last_sent_uci = None
+        self._ai_first_move_pending = False  # 标记AI是否需要在棋盘就绪后走首步
 
     async def handle(self):
         self._log("会话开始")
@@ -246,6 +247,15 @@ class ChessService(BaseSession):
         elif key == EnumKeyInfo.StartChess.value:
             if len(message) >= 2 and message[1] == EnumCommandCode.OkStatusCode.value:
                 self._log("棋盘确认开始游戏")
+                # 棋盘已就绪：进入对弈状态，若 AI 先手则此刻才推送首步，避免棋盘漏接
+                if self._state == "WAIT_BOARD_READY":
+                    self._state = "PLAYING"
+                    if self._ai_first_move_pending:
+                        self._ai_first_move_pending = False
+                        if self._game_mode == "lichess":
+                            await self._lichess_wait_and_forward_move()
+                        else:
+                            await self._engine_move()
             else:
                 self._log("棋盘开始游戏")
 
@@ -304,21 +314,18 @@ class ChessService(BaseSession):
         if self._state not in ("WAIT_CAMP", "WAIT_LAYOUT"):
             return
         if message and len(message) == 1 and message[0] == EnumCommandCode.BoardLayoutComplete.value:
-            self._log("棋盘布局完成，开始对弈")
+            self._log("棋盘布局完成，下发开始指令，等待棋盘就绪")
 
-            self._state = "PLAYING"
+            # 先等棋盘回 EnableKey(StartChess)+OK 再推送 AI 首步，
+            # 否则棋盘未就绪会丢掉首步走子数据导致对弈卡死
+            self._ai_first_move_pending = not self.chess_board_camp
+            self._state = "WAIT_BOARD_READY"
 
             start_bytes = bytes([EnumKeyInfo.StartChess.value])
             await self.send_data(EnumCommandCode.EnableKey.value, start_bytes)
 
             if self._game_mode == "lichess" and self._lichess:
                 asyncio.create_task(self._lichess_monitor_end())
-
-            if not self.chess_board_camp:
-                if self._game_mode == "lichess":
-                    await self._lichess_wait_and_forward_move()
-                else:
-                    await self._engine_move()
 
     async def _handle_move_on(self, message):
         if message and len(message) > 1:
@@ -701,6 +708,7 @@ class ChessService(BaseSession):
             self._lichess = None
         self._game_mode = None
         self._state = "WAIT_GAME_MODE"
+        self._ai_first_move_pending = False
         self.board.reset()
 
     async def _cleanup(self):
