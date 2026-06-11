@@ -53,7 +53,10 @@ class StockfishEngine:
     async def quit(self):
         if self._engine:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._engine.quit)
+            try:
+                await loop.run_in_executor(None, self._engine.quit)
+            except Exception as e:
+                self._log(f"Stockfish 关闭异常: {e}", "error")
             self._engine = None
             self._log("Stockfish 已关闭")
 

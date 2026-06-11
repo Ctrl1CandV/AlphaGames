@@ -12,6 +12,7 @@ class LichessSession:
         self._events = asyncio.Queue()
         self._states = asyncio.Queue()
         self._running = False
+        self._stop_event = threading.Event()       # 线程停止信号（替代 _running 布尔值，避免 TOCTOU 竞态）
         self._game_id = None
         self._my_color = None
         self._move_count = 0                # 已落到物理棋盘上的半回合数
@@ -64,17 +65,18 @@ class LichessSession:
             except Exception as e:
                 self._log(f"检查进行中对局异常: {e}")
 
-        await loop.run_in_executor(None, _check)
+        await asyncio.wait_for(loop.run_in_executor(None, _check), timeout=60)
 
     async def seek_until_found(self, time=10, increment=5):
         await self._check_and_abort_ongoing()
         self._running = True
+        self._stop_event.clear()
         loop = asyncio.get_running_loop()
 
         def _stream():
             try:
                 for event in self._client.board.stream_incoming_events():
-                    if not self._running:
+                    if self._stop_event.is_set():
                         break
                     etype = self._attr(event, "type")
                     if etype in ("gameStart", "gameFinish", "challenge"):
@@ -86,16 +88,33 @@ class LichessSession:
         self._event_thread.start()
 
         attempt = 0
-        while self._running:
+        while self._running and not self._stop_event.is_set():
             attempt += 1
             self._log(f"第{attempt}次寻找对手...")
+            # 清空前先检查是否已有 gameStart 事件，避免丢弃
+            game_start_event = None
             while not self._events.empty():
-                self._events.get_nowait()
+                evt = self._events.get_nowait()
+                if self._attr(evt, "type") == "gameStart":
+                    game_start_event = evt
+            if game_start_event:
+                game = self._attr(game_start_event, "game", {})
+                self._game_id = self._attr(game, "id")
+                self._my_color = self._attr(game, "color")
+                self._log(f"匹配成功 game_id={self._game_id} color={self._my_color}")
+                return
+
             try:
-                await loop.run_in_executor(
-                    None,
-                    lambda: self._client.board.seek(time=time, increment=increment),
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: self._client.board.seek(time=time, increment=increment),
+                    ),
+                    timeout=30,
                 )
+            except asyncio.TimeoutError:
+                self._log("Seek 请求超时", "warning")
+                continue
             except Exception as e:
                 self._log(f"Seek异常: {e}", "error")
                 await asyncio.sleep(2)
@@ -117,12 +136,13 @@ class LichessSession:
         """向指定 Lichess 用户发起对战，等待对方接受"""
         await self._check_and_abort_ongoing()
         self._running = True
+        self._stop_event.clear()
         loop = asyncio.get_running_loop()
 
         def _stream():
             try:
                 for event in self._client.board.stream_incoming_events():
-                    if not self._running:
+                    if self._stop_event.is_set():
                         break
                     etype = self._attr(event, "type")
                     if etype in ("gameStart", "gameFinish", "challenge"):
@@ -145,9 +165,17 @@ class LichessSession:
         last_error = None
         for attempt in range(1, 4):
             try:
-                await loop.run_in_executor(None, _challenge)
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _challenge),
+                    timeout=30,
+                )
                 self._log(f"已向 {username} 发起挑战，等待对方接受...")
                 break
+            except asyncio.TimeoutError:
+                self._log(f"挑战请求超时(第{attempt}/3次)", "warning")
+                if attempt == 3:
+                    raise RuntimeError(f"挑战 {username} 超时")
+                await asyncio.sleep(2)
             except Exception as e:
                 last_error = e
                 error_msg = str(e)
@@ -178,6 +206,7 @@ class LichessSession:
     async def challenge_ai(self, level=3, time_min=10, increment_sec=5, color="random"):
         await self._check_and_abort_ongoing()
         self._running = True
+        self._stop_event.clear()
         loop = asyncio.get_running_loop()
 
         def _challenge():
@@ -192,7 +221,10 @@ class LichessSession:
         last_error = None
         for attempt in range(1, 4):
             try:
-                game = await loop.run_in_executor(None, _challenge)
+                game = await asyncio.wait_for(
+                    loop.run_in_executor(None, _challenge),
+                    timeout=30,
+                )
                 self._game_id = self._attr(game, "id")
                 self._my_color = self._attr(game, "color")
                 if attempt > 1:
@@ -200,6 +232,11 @@ class LichessSession:
                 else:
                     self._log(f"AI挑战成功 game_id={self._game_id} color={self._my_color}")
                 return
+            except asyncio.TimeoutError:
+                self._log(f"AI挑战超时(第{attempt}/3次)", "warning")
+                if attempt == 3:
+                    raise RuntimeError("AI挑战超时")
+                await asyncio.sleep(2)
             except Exception as e:
                 last_error = e
                 self._log(f"AI挑战网络异常(第{attempt}/3次): {e}", "error" if attempt == 3 else "info")
@@ -209,11 +246,12 @@ class LichessSession:
 
     async def start_game_stream(self):
         loop = asyncio.get_running_loop()
+        stop = self._stop_event  # 捕获引用，确保线程始终检查创建时的 event
 
         def _stream():
             try:
                 for state in self._client.board.stream_game_state(self._game_id):
-                    if not self._running:
+                    if stop.is_set():
                         break
                     stype = self._attr(state, "type")
                     if stype == "gameState":
@@ -223,6 +261,7 @@ class LichessSession:
                     asyncio.run_coroutine_threadsafe(self._states.put(state), loop)
             except Exception as e:
                 self._log(f"对局状态流异常: {e}", "error")
+                self._game_ended.set()
 
         self._state_thread = threading.Thread(target=_stream, daemon=True)
         self._state_thread.start()
@@ -231,7 +270,8 @@ class LichessSession:
         stype = self._attr(state, "type")
         if stype != "gameFull":
             self._log(f"未预期的初始状态: {stype}", "error")
-            return
+            # 抛异常让调用方能感知失败，避免静默 return 导致 my_color 为 None
+            raise RuntimeError(f"未预期的初始状态: {stype}，期望 gameFull")
 
         if not self._my_color:
             self._resolve_color_from_players(state)
@@ -288,8 +328,11 @@ class LichessSession:
         last_error = None
         for attempt in range(1, 4):
             try:
-                await loop.run_in_executor(
-                    None, lambda: self._client.board.make_move(self._game_id, uci)
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, lambda: self._client.board.make_move(self._game_id, uci)
+                    ),
+                    timeout=15,
                 )
                 self._move_count += 1
                 if attempt > 1:
@@ -297,6 +340,11 @@ class LichessSession:
                 else:
                     self._log(f"走棋: {uci}")
                 return
+            except asyncio.TimeoutError:
+                self._log(f"走棋超时(第{attempt}/3次): {uci}", "warning")
+                if attempt == 3:
+                    raise RuntimeError(f"走棋超时(已重试3次): {uci}")
+                await asyncio.sleep(2)
             except Exception as e:
                 last_error = e
                 self._log(f"走棋网络异常(第{attempt}/3次): {e}", "error" if attempt == 3 else "info")
@@ -306,8 +354,16 @@ class LichessSession:
 
     async def resign(self):
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: self._client.board.resign_game(self._game_id))
-        self._log("投降")
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: self._client.board.resign_game(self._game_id)),
+                timeout=10,
+            )
+            self._log("投降")
+        except asyncio.TimeoutError:
+            self._log("投降请求超时", "warning")
+        except Exception as e:
+            self._log(f"投降异常: {e}", "error")
 
     async def wait_for_opponent_move(self):
         # 优先转发 gameFull 快照中订阅前已走、尚未同步到棋盘的步
@@ -319,7 +375,7 @@ class LichessSession:
 
         for retry in range(3):
             try:
-                while self._running:
+                while self._running and not self._stop_event.is_set():
                     state = await asyncio.wait_for(self._states.get(), timeout=60)
                     stype = self._attr(state, "type")
                     if stype == "gameState":
@@ -349,14 +405,22 @@ class LichessSession:
         raise ConnectionAbortedError("对手超时无响应")
 
     async def _restart_state_stream(self):
-        self._running = False
-        self._running = True
+        # 通知旧线程退出（旧 event 保持 set 状态，旧线程会在下次迭代检查时退出）
+        self._stop_event.set()
+
+        # 清空队列中旧数据，避免乱序
+        while not self._states.empty():
+            self._states.get_nowait()
+
+        # 为新线程创建独立的 stop event，避免与旧线程冲突
+        self._stop_event = threading.Event()
+        stop = self._stop_event
         loop = asyncio.get_running_loop()
 
         def _stream():
             try:
                 for state in self._client.board.stream_game_state(self._game_id):
-                    if not self._running:
+                    if stop.is_set():
                         break
                     stype = self._attr(state, "type")
                     if stype == "gameState":
@@ -366,13 +430,17 @@ class LichessSession:
                     asyncio.run_coroutine_threadsafe(self._states.put(state), loop)
             except Exception as e:
                 self._log(f"状态流重连异常: {e}", "error")
+                self._game_ended.set()
 
         self._state_thread = threading.Thread(target=_stream, daemon=True)
         self._state_thread.start()
 
     def shutdown(self):
         self._running = False
+        self._stop_event.set()
         self._game_ended.set()
+        # 不调用 join()：此方法可能从 async 上下文调用，join 会阻塞事件循环。
+        # 线程是 daemon 线程，在 stop_event 触发后的下一次流迭代中自然退出。
 
     def _log(self, msg, level="info"):
         getattr(self._logger, level)(f"[Lichess] {msg}")

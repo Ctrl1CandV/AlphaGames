@@ -50,6 +50,9 @@ class ChessService(BaseSession):
         self._game_config = {}
         self._last_sent_uci = None
         self._ai_first_move_pending = False  # 标记AI是否需要在棋盘就绪后走首步
+        self._lichess_task = None            # 后台对局任务引用，取消匹配时可 cancel
+        self._monitor_task = None            # Lichess 对局结束监控任务引用
+        self._game_ended_lock = asyncio.Lock()  # 防重入锁
 
     async def handle(self):
         self._log("会话开始")
@@ -59,12 +62,22 @@ class ChessService(BaseSession):
         await self.send_data(EnumCommonCommandCode.SnCode.value, None)
         try:
             while self._running:
-                data = await self.reader.read(65536)
+                # 读取超时保护，防止连接假死（1800s 足够覆盖 Lichess 长对局的等待间隔）
+                try:
+                    data = await asyncio.wait_for(self.reader.read(65536), timeout=1800)
+                except asyncio.TimeoutError:
+                    self._log("读取超时(1800s)，视为连接断开")
+                    break
                 if not data or len(data) == 0:
                     self._log("客户端断开连接")
                     break
 
                 dynamic_buffer.extend(data)
+                # 缓冲区大小限制，防止异常数据导致内存无限增长
+                if len(dynamic_buffer) > 1024 * 1024:  # 1MB
+                    self._log(f"缓冲区超过1MB({len(dynamic_buffer)}字节)，重置", "error")
+                    dynamic_buffer = bytearray()
+                    continue
                 while len(dynamic_buffer) >= MessageProto.HEAD_LENGTH:
                     _, _, data_length = MessageProto.get_head_info(dynamic_buffer)
                     if data_length == 0:
@@ -243,6 +256,8 @@ class ChessService(BaseSession):
             await self.send_data(EnumCommandCode.EnableKey.value, battle_bytes)
             await self._send_opening_data()
             self._state = "WAIT_OPENING"
+            # 启动握手超时监控
+            self._start_handshake_monitor("WAIT_OPENING", self._send_opening_data)
 
         elif key == EnumKeyInfo.StartChess.value:
             if len(message) >= 2 and message[1] == EnumCommandCode.OkStatusCode.value:
@@ -262,9 +277,16 @@ class ChessService(BaseSession):
         elif key == EnumKeyInfo.EndChess.value:
             if self._state == "LICHESS_SEEKING":
                 self._log("棋盘取消匹配")
+                # 取消后台对局任务，防止"复活"
+                if self._lichess_task and not self._lichess_task.done():
+                    self._lichess_task.cancel()
+                    self._lichess_task = None
                 if self._lichess:
                     self._lichess.shutdown()
                     self._lichess = None
+                if self._monitor_task and not self._monitor_task.done():
+                    self._monitor_task.cancel()
+                    self._monitor_task = None
                 self._game_mode = None
                 await self.send_data(
                     EnumCommandCode.EnableKey.value,
@@ -273,6 +295,9 @@ class ChessService(BaseSession):
                 self._state = "WAIT_GAME_MODE"
                 return
             if self._state != "PLAYING":
+                # 握手阶段也可直接终止，无需等待监控超时
+                if self._state in ("WAIT_OPENING", "WAIT_CAMP", "WAIT_LAYOUT", "WAIT_BOARD_READY"):
+                    await self._on_game_ended()
                 return
             if self._game_mode == "lichess" and self._lichess:
                 try:
@@ -283,6 +308,10 @@ class ChessService(BaseSession):
             await self._on_game_ended(is_surrender=True)
 
     async def _handle_opening(self, message):
+        # 状态守卫：防止过期/重复消息覆盖状态
+        if self._state != "WAIT_OPENING":
+            self._log(f"非 WAIT_OPENING 状态收到 Opening 确认, state={self._state}，忽略")
+            return
         self._log("棋盘已按开局数据摆好棋子")
 
         if self._game_mode != "lichess":
@@ -304,8 +333,14 @@ class ChessService(BaseSession):
         )
         await self.send_data(EnumCommandCode.BoardCamp.value, bytes([camp_byte]))
         self._state = "WAIT_CAMP"
+        # 启动握手超时监控
+        self._start_handshake_monitor("WAIT_CAMP", lambda: self.send_data(EnumCommandCode.BoardCamp.value, bytes([camp_byte])))
 
     async def _handle_board_camp(self, message):
+        # 状态守卫：防止过期/重复消息覆盖状态
+        if self._state != "WAIT_CAMP":
+            self._log(f"非 WAIT_CAMP 状态收到 BoardCamp 确认, state={self._state}，忽略")
+            return
         if len(message) >= 2 and message[1] == EnumCommandCode.OkStatusCode.value:
             self._log("棋盘已按阵营信息设置完成")
             self._state = "WAIT_LAYOUT"
@@ -324,8 +359,15 @@ class ChessService(BaseSession):
             start_bytes = bytes([EnumKeyInfo.StartChess.value])
             await self.send_data(EnumCommandCode.EnableKey.value, start_bytes)
 
+            # 启动握手超时监控
+            self._start_handshake_monitor(
+                "WAIT_BOARD_READY",
+                lambda: self.send_data(EnumCommandCode.EnableKey.value, start_bytes),
+            )
+
             if self._game_mode == "lichess" and self._lichess:
-                asyncio.create_task(self._lichess_monitor_end())
+                # 保存任务引用，cleanup 时可取消
+                self._monitor_task = asyncio.create_task(self._lichess_monitor_end())
 
     async def _handle_move_on(self, message):
         if message and len(message) > 1:
@@ -488,7 +530,8 @@ class ChessService(BaseSession):
             bytes([mode_key, EnumCommandCode.OkStatusCode.value]),
         )
         self._state = "LICHESS_SEEKING"
-        asyncio.create_task(self._lichess_game_loop(bind["token"], is_ai))
+        # 保存任务引用，取消匹配时可 cancel
+        self._lichess_task = asyncio.create_task(self._lichess_game_loop(bind["token"], is_ai))
 
     async def _lichess_game_loop(self, token, is_ai):
         cfg = self._game_config
@@ -520,14 +563,27 @@ class ChessService(BaseSession):
             self._log(f"Lichess{label}开局成功 阵营={'白' if self.chess_board_camp else '黑'}")
             await self._send_opening_data()
             self._state = "WAIT_OPENING"
+            # 启动握手超时监控
+            self._start_handshake_monitor("WAIT_OPENING", self._send_opening_data)
+        except asyncio.CancelledError:
+            # 用户取消匹配时正常退出
+            self._log("Lichess 对局任务已取消")
+            raise
         except Exception as e:
             label = "AI" if is_ai else ""
             self._log(f"Lichess{label}开局失败: {type(e).__name__}: {e}", "error")
             import traceback
             self._log(traceback.format_exc(), "error")
-            await self._on_game_ended()
+            if self._lichess:
+                self._lichess.shutdown()
+                self._lichess = None
+            self._game_mode = None
+            self._ai_first_move_pending = False
+            # _send_open_fail 会发送 EndChess 给棋盘并将 state 置为 WAIT_GAME_MODE
+            await self._send_open_fail()
 
     async def _send_open_fail(self):
+        # 无需防重入锁：此方法仅在开局失败时调用，与 _on_game_ended（对局结束时调用）不会并发
         await self.send_data(
             EnumCommandCode.EnableKey.value,
             bytes([EnumKeyInfo.EndChess.value]),
@@ -571,14 +627,39 @@ class ChessService(BaseSession):
 
     async def _lichess_monitor_end(self):
         """后台监控 Lichess 对局结束事件"""
-        await self._lichess.wait_game_end()
-        if self._state == "PLAYING":
-            self._log("Lichess 对局结束")
-            await self._on_game_ended()
+        try:
+            if not self._lichess:
+                return
+            await self._lichess.wait_game_end()
+            if self._state == "PLAYING":
+                self._log("Lichess 对局结束")
+                await self._on_game_ended()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self._log(f"Lichess 对局结束监控异常: {e}", "error")
 
     async def _send_opening_data(self):
         data = build_opening_data()
         await self.send_data(EnumCommandCode.Opening.value, data)
+
+    async def _handshake_retry(self, expected_state, send_func, max_retries=3, timeout=10.0):
+        """握手超时监控：sleep 后检查状态是否已离开 expected_state，未离开则重发，超限则终止对局。"""
+        for attempt in range(max_retries):
+            await asyncio.sleep(timeout)
+            if self._state != expected_state:
+                return  # 握手成功或对局已结束，均无需处理
+            self._log(f"握手超时(第{attempt + 1}/{max_retries}次)，状态={expected_state}，重发指令")
+            await send_func()
+        if self._state == expected_state:
+            self._log(f"握手重试{max_retries}次后仍无响应，终止对局", "error")
+            await self._on_game_ended()
+
+    def _start_handshake_monitor(self, expected_state, send_func, max_retries=3, timeout=10.0):
+        """启动后台握手超时监控任务"""
+        asyncio.create_task(
+            self._handshake_retry(expected_state, send_func, max_retries, timeout)
+        )
 
     def _extract_step_data(self, message):
         if len(message) >= TAG_HEADER_LENGTH + 6:
@@ -673,9 +754,13 @@ class ChessService(BaseSession):
             await self._on_game_ended()
 
     async def _on_game_ended(self, is_surrender=False):
-        if self._state == "WAIT_GAME_MODE":
-            return
-        result = self.board.result()
+        # 锁内仅做状态切换和结果捕获，使并发调用被 state 检查拦截
+        async with self._game_ended_lock:
+            if self._state == "WAIT_GAME_MODE":
+                return
+            self._state = "WAIT_GAME_MODE"
+            result = self.board.result()
+
         reason = "投降" if is_surrender else f"终局({result})"
         self._log(f"游戏结束: {reason}")
 
@@ -707,12 +792,16 @@ class ChessService(BaseSession):
             self._lichess.shutdown()
             self._lichess = None
         self._game_mode = None
-        self._state = "WAIT_GAME_MODE"
         self._ai_first_move_pending = False
         self.board.reset()
 
     async def _cleanup(self):
         self._running = False
+        # 取消所有后台 asyncio 任务
+        if self._lichess_task and not self._lichess_task.done():
+            self._lichess_task.cancel()
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
         if self._lichess:
             self._lichess.shutdown()
         await self.close()
